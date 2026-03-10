@@ -2620,7 +2620,7 @@
                 try {
                     if (!card || !player) {
                         console.error('Invalid player or card in calculateCardCost');
-                        return 999; // Return high cost for invalid cards
+                        return 999;
                     }
                     
                     let cost = card.cost || 0;
@@ -2633,11 +2633,35 @@
                         });
                     }
                     
+                    if (player.costReductions && card.type) {
+                        player.costReductions.forEach(reduction => {
+                            if (reduction.includes(card.type)) {
+                                cost = Math.max(0, cost - 1);
+                            }
+                        });
+                    }
+                    
+                    if (player.enabledFreeCards && player.enabledFreeCards.includes(card.name)) {
+                        cost = 0;
+                    }
+                    
                     return Math.max(0, cost);
                 } catch (error) {
                     console.error('Error calculating card cost:', error.message);
-                    return 999; // Return high cost on error
+                    return 999;
                 }
+            }
+
+            /**
+             * Get how many cost points were saved by matching resources (for Customs House trigger)
+             */
+            getResourceSavings(player, card) {
+                if (!card || !card.resources || !Array.isArray(card.resources) || !player.resources) return 0;
+                let savings = 0;
+                card.resources.forEach(resource => {
+                    if (player.resources.has(resource)) savings++;
+                });
+                return savings;
             }
             
             nextPhase() {
@@ -2833,6 +2857,10 @@
                         } else {
                             const tableauIndex = (this.state.currentAge - 1) * 6 + (this.state.currentTurn - 1);
                             const actualCost = this.calculateCardCost(player, player.placedCard);
+                            const resourceSavings = this.getResourceSavings(player, player.placedCard);
+                            if (resourceSavings > 0) {
+                                this.effectEngine.triggerAnyResourceUsed(player, this.state);
+                            }
                             
                             console.log(`Revealing ${player.placedCard.name} for ${player.name} at tableau position ${tableauIndex}`);
                             
@@ -2972,6 +3000,8 @@
                             if (!winner.conquestCulture) winner.conquestCulture = 0;
                             winner.conquestCulture += cultureReward;
 
+                            this.effectEngine.triggerWinConquestOrWar(winner, this.state);
+
                             this.logAction('conquest', `🏆 ${winner.name} won Age ${this.state.currentAge} conquest (+${cultureReward} culture)`, {
                                 winner: winner.name,
                                 military: highestMilitary,
@@ -3108,6 +3138,7 @@
                 
                     // Execute automated wars based on military imbalances
                     let warResults = [];
+                    const playersInWar = new Set();
 
                     // Identify potential aggressors (players with significant military advantage)
                     this.state.players.forEach((attacker, attackerIndex) => {
@@ -3153,12 +3184,15 @@
                                         outcome: 'defended',
                                         message: `${attacker.name} attempted to attack ${weakestOpponent.name}, but fortifications held!`
                                     });
+                                    playersInWar.add(attackerIndex);
+                                    playersInWar.add(weakestIndex);
                                 } else {
                                     // Find a random card to ruin
                                     const validTargets = [];
                                     if (weakestOpponent.tableau) {
                                         weakestOpponent.tableau.forEach((card, idx) => {
                                             if (card && !weakestOpponent.ruinedCards.has(idx)) {
+                                                if (card.name === 'Masada' && weakestOpponent.tappedCards.has(idx)) return;
                                                 validTargets.push(idx);
                                             }
                                         });
@@ -3171,6 +3205,8 @@
                                             weakestOpponent.ruinedCards = new Set();
                                         }
                                         weakestOpponent.ruinedCards.add(targetIdx);
+                                        this.effectEngine.triggerOwnCardRuined(weakestOpponent, targetIdx, this.state);
+                                        this.effectEngine.triggerAnyCardRuined(weakestOpponent, targetIdx, this.state);
 
                                         // Defender loses culture
                                         const cultureLoss = 2;
@@ -3179,11 +3215,19 @@
                                         warResults.push({
                                             attacker: attacker.name,
                                             defender: weakestOpponent.name,
+                                            attackerIndex: attackerIndex,
+                                            defenderIndex: weakestIndex,
                                             outcome: 'success',
                                             ruinedCard: ruinedCard.name,
                                             cultureLoss: cultureLoss,
                                             message: `${attacker.name} crushed ${weakestOpponent.name}! Ruined ${ruinedCard.name} and caused ${cultureLoss} culture loss.`
                                         });
+                                        playersInWar.add(attackerIndex);
+                                        playersInWar.add(weakestIndex);
+                                        this.effectEngine.triggerWarResult(this.state.players[attackerIndex], true, this.state);
+                                        this.effectEngine.triggerWarResult(weakestOpponent, false, this.state);
+                                        this.effectEngine.triggerWinConquestOrWar(this.state.players[attackerIndex], this.state);
+                                        this.state.players[attackerIndex].wonWarThisPhase = true;
 
                                         this.logAction('war', `⚔️ ${attacker.name} attacked ${weakestOpponent.name} - Destroyed ${ruinedCard.name}`, {
                                             attacker: attacker.name,
@@ -3227,6 +3271,11 @@
                     </div>
                     <br>
                 `;
+
+                // Peace bonus for players who didn't participate in war (Pax Romana)
+                this.effectEngine.triggerWarPhasePeaceBonus(this.state, playersInWar);
+                // Clear war-won flags for next phase
+                this.state.players.forEach(p => { if (p) p.wonWarThisPhase = false; });
 
                 if (this.state.currentAge === 3) {
                     modalContent += `<button class="btn" onclick="hideModal(); advanceFromWar();" style="background: linear-gradient(145deg, #ffd700, #ffed4a); color: black;">🏆 Proceed to Final Scoring</button>`;
@@ -3279,8 +3328,9 @@
                 this.state.currentTurn = 1;
                 this.state.currentPhase = 'place';
 
-                // Add age start bonuses
+                // Add age start bonuses (reset age gold tracking for Temple of Mercury)
                 this.state.players.forEach(player => {
+                    player.ageStartGoldFromCards = 0;
                     // Untap all cards
                     player.tappedCards.clear();
 
@@ -3359,6 +3409,35 @@
             
             endGame() {
                 console.log('=== GAME END ===');
+                
+                // Process end-game bonuses (Ziggurat of Ur, Expeditionary Fleet, etc.)
+                this.state.players.forEach(player => {
+                    player.tableau.forEach((card, index) => {
+                        if (!card || player.ruinedCards.has(index)) return;
+                        if (card.effect && card.effect.includes('endGameBonus:')) {
+                            const match = card.effect.match(/endGameBonus:(\d+)/);
+                            if (match) {
+                                const bonus = parseInt(match[1]);
+                                if (!card.bonusCulture) card.bonusCulture = 0;
+                                card.bonusCulture += bonus;
+                                console.log(`${player.name}'s ${card.name} adds ${bonus} end-game culture!`);
+                            }
+                        }
+                        if (card.effect && card.effect.includes('endGameGambling:')) {
+                            const match = card.effect.match(/endGameGambling:(\d+):(\d+):(\d+)/);
+                            if (match) {
+                                const winAmount = parseInt(match[1]);
+                                const loseAmount = parseInt(match[2]);
+                                const winChance = parseInt(match[3]);
+                                const roll = Math.floor(Math.random() * 6) + 1;
+                                const goldGain = roll <= winChance ? winAmount : loseAmount;
+                                player.gold += goldGain;
+                                console.log(`${player.name}'s ${card.name}: rolled ${roll}, gains ${goldGain} gold!`);
+                            }
+                        }
+                    });
+                    this.updatePlayerStats(player);
+                });
                 
                 // Convert gold to culture
                 this.state.players.forEach(player => {
@@ -3479,7 +3558,7 @@
 
                 player.tableau.forEach((card, index) => {
                     if (card && !player.ruinedCards.has(index)) {
-                        totalCulture += card.culture || 0;
+                        totalCulture += (card.culture || 0) + (card.bonusCulture || 0);
                         totalMilitary += (card.military || 0) + (card.bonusMilitary || 0);
                     }
                 });
@@ -3634,6 +3713,121 @@
                         name: "Arabian Horses", cost: 2, type: "t", culture: 0, military: 1, resources: ["a"],
                         ability: "Add 1 ⚔️ to each of your mounted and trade cards when they are played.",
                         effect: "military:1,trigger:playCardType:m,t,effect:addMilitary:1"
+                    },
+                    {
+                        name: "Overland Expedition", cost: 2, type: "e", culture: 0, military: 0, resources: ["a"],
+                        ability: "Gain 9 gold at the start of the third Age.",
+                        effect: "goldOnThirdAge:9"
+                    },
+                    {
+                        name: "Customs House", cost: 3, type: "c", culture: 1, military: 0, resources: ["s", "k"],
+                        ability: "Gain 1 gold each time someone uses one or more Resources to reduce a card's cost.",
+                        effect: "culture:1,trigger:anyResourceUsed,effect:gainGold:1"
+                    },
+                    {
+                        name: "Bibliotheca Historica", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"],
+                        ability: "Reduce cost to play Wonder and Person cards by 1.",
+                        effect: "culture:1,reduceCostType:wp"
+                    },
+                    {
+                        name: "De Architectura of Vitruvius", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"],
+                        ability: "Reduce cost to play Fortified, Civic, and Economic cards by 1.",
+                        effect: "culture:1,reduceCostType:fce"
+                    },
+                    {
+                        name: "Plinys Historia Naturalis", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"],
+                        ability: "Reduce cost to play Concept and Trade cards by 1.",
+                        effect: "culture:1,reduceCostType:at"
+                    },
+                    {
+                        name: "Epitoma Rei Militaris", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"],
+                        ability: "Reduce cost to play Naval, Ranged, Infantry, and Mounted cards by 1.",
+                        effect: "culture:1,reduceCostType:nrim"
+                    },
+                    {
+                        name: "The Arthashastra", cost: 2, type: "a", culture: 2, military: 0, resources: ["k"],
+                        ability: "Reduce cost to play Holy and Underworld cards by 1.",
+                        effect: "culture:2,reduceCostType:hu"
+                    },
+                    {
+                        name: "Archimedes Palimpsest", cost: 2, type: "a", culture: 2, military: 0, resources: ["k"],
+                        ability: "Add 1 ⚔️ to each of your Ranged and Naval cards when they are played.",
+                        effect: "culture:2,trigger:playCardType:r,n,effect:addMilitary:1"
+                    },
+                    {
+                        name: "Hanging Gardens of Babylon", cost: 2, type: "w", culture: 1, military: 0, resources: ["s", "f"],
+                        ability: "Add 1 🏛️ to this card each time a Wonder card is played by any player.",
+                        effect: "culture:1,trigger:anyPlayerPlaysType:w,effect:addCulture:1"
+                    },
+                    {
+                        name: "Gambling Den", cost: 2, type: "u", culture: 0, military: 0, resources: ["w"],
+                        ability: "4 in 6 chance of gaining 6 gold at start of each Age, otherwise gain 2.",
+                        effect: "gambling:6:2:4"
+                    },
+                    {
+                        name: "Grove of Ariccia", cost: 1, type: "h", culture: 1, military: 0, resources: [],
+                        ability: "Altar of the Twelve Gods is free to play if you have this card in play.",
+                        effect: "culture:1,enablesFree:Altar of the Twelve Gods"
+                    },
+                    {
+                        name: "Slingers", cost: 1, type: "r", culture: 0, military: 1, resources: [],
+                        ability: "Bowmen is free to play if you have this card in play.",
+                        effect: "military:1,enablesFree:Bowmen"
+                    },
+                    {
+                        name: "The Ziggurat of Ur", cost: 2, type: "h", culture: 0, military: 0, resources: ["s"],
+                        ability: "Pay 2 gold at the end of each Age. If you cannot pay, RUIN this card. If not RUINED by end of game, add 10 to your final score.",
+                        effect: "trigger:endOfAge,effect:payOrRuin:2,endGameBonus:10"
+                    },
+                    {
+                        name: "Great Lament", cost: 2, type: "a", culture: 0, military: 0, resources: ["k"],
+                        ability: "Each time you win a War add 1 🏛️ to this card. Each time you lose a War add 2 🏛️.",
+                        effect: "trigger:warResult,effect:winAddCulture:1,loseAddCulture:2"
+                    },
+                    {
+                        name: "The Lyceum", cost: 3, type: "c", culture: 2, military: 0, resources: ["k", "s"],
+                        ability: "Add 1 🏛️ to each of your Concept cards when they are played.",
+                        effect: "culture:2,trigger:playCardType:a,effect:addCulture:1"
+                    },
+                    {
+                        name: "The Black Legion", cost: 3, type: "i", culture: 1, military: 3, resources: ["m", "f"],
+                        ability: "Each time one of your cards is RUINED, add 2 ⚔️ to this card.",
+                        effect: "military:3,culture:1,trigger:ownCardRuined,effect:addMilitary:2"
+                    },
+                    {
+                        name: "Mithridates", cost: 2, type: "p", culture: 1, military: 0, resources: ["a"],
+                        ability: "If you win a War you may choose a card from any of your opponent's Ages, then TAP this card.",
+                        effect: "culture:1,trigger:manual,effect:stealOpponentCard,tap"
+                    },
+                    {
+                        name: "Pax Romana", cost: 3, type: "a", culture: 2, military: 0, resources: ["v", "a"],
+                        ability: "If you do not engage in a War during a War phase, add 2 🏛️ to this card.",
+                        effect: "culture:2,trigger:warPhase,effect:peaceBonus:2"
+                    },
+                    {
+                        name: "Tessarakonteres", cost: 2, type: "n", culture: 0, military: 3, resources: ["w"],
+                        ability: "Win a Conquest or War tie.",
+                        effect: "military:3,winTies"
+                    },
+                    {
+                        name: "Mausoleum of Halicarnassus", cost: 3, type: "w", culture: 2, military: 0, resources: ["s", "k"],
+                        ability: "Each time a card is RUINED add 2 🏛️ to this card.",
+                        effect: "culture:2,trigger:anyCardRuined,effect:addCulture:2"
+                    },
+                    {
+                        name: "The Great Pyramid", cost: 3, type: "w", culture: 2, military: 0, resources: ["s", "f"],
+                        ability: "Add 2 🏛️ to this card at the end of each Age.",
+                        effect: "culture:2,trigger:endOfAge,effect:addCulture:2"
+                    },
+                    {
+                        name: "Battering Ram", cost: 2, type: "i", culture: 0, military: 2, resources: ["w"],
+                        ability: "Add 1 ⚔️ to this card each time another player plays a Fortified card.",
+                        effect: "military:2,trigger:otherPlayerPlaysType:f,effect:addMilitary:1"
+                    },
+                    {
+                        name: "Spoils of War", cost: 2, type: "e", culture: 0, military: 0, resources: ["a"],
+                        ability: "Gain 4 gold each time you win a Conquest or War.",
+                        effect: "trigger:winConquestOrWar,effect:gainGold:4"
                     }
                 ];
                 
@@ -3678,6 +3872,151 @@
                         name: "Bowmen", cost: 4, type: "r", culture: 0, military: 4, resources: ["w"],
                         ability: "Long Bowmen is free to play if you have this card in play.",
                         effect: "military:4,enablesFree:Long Bowmen"
+                    },
+                    {
+                        name: "Outpost", cost: 2, type: "f", culture: 0, military: 2, resources: ["s"],
+                        ability: "The next effect applied to you by another player is ignored, then TAP this card.",
+                        effect: "military:2,trigger:manual,effect:shieldFromEffect,tap"
+                    },
+                    {
+                        name: "The Graeae", cost: 2, type: "p", culture: 2, military: 0, resources: ["k"],
+                        ability: "When a random choice is called for by a card you may instead choose the result, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:controlRandom,tap"
+                    },
+                    {
+                        name: "Bad Deal", cost: 1, type: "t", culture: 0, military: 0, resources: [],
+                        ability: "If any other player has Trade or Economic, swap this card with another player's random Trade or Economic card, then TAP this card.",
+                        effect: "trigger:manual,effect:swapWithOpponent:t,e,tap"
+                    },
+                    {
+                        name: "Divine Blessing", cost: 2, type: "h", culture: 0, military: 0, resources: ["v"],
+                        ability: "If you have at least 2 Holy, double the 🏛️ and ⚔️ tokens on the card to the right, then TAP this card.",
+                        effect: "trigger:manual,condition:countType:h:2,effect:doubleAdjacentCard,tap"
+                    },
+                    {
+                        name: "Circus Maximus", cost: 3, type: "c", culture: 2, military: 0, resources: ["s", "a"],
+                        ability: "If you have any Mounted, gain 2 gold and add 2 🏛️ to this card for each Mounted you have, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:m,effect:gainGold:2,addCulturePerType:m:2,tap"
+                    },
+                    {
+                        name: "Memnon of Rhodes", cost: 3, type: "p", culture: 2, military: 0, resources: ["v", "k"],
+                        ability: "If you have any Naval or Ranged, add 2 ⚔️ to each of your Naval and Ranged, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:n,effect:addMilitaryToTypes:n,r:2,tap"
+                    },
+                    {
+                        name: "Saboteur", cost: 1, type: "u", culture: 0, military: 0, resources: [],
+                        ability: "If you have at least 2 Underworld, RUIN a random card of a random other player, then TAP this card.",
+                        effect: "trigger:manual,condition:countType:u:2,effect:ruinRandomOpponentCard,tap"
+                    },
+                    {
+                        name: "Altar of the Twelve Gods", cost: 4, type: "h", culture: 4, military: 0, resources: ["s"],
+                        ability: "The Pantheon is free to play if you have this card in play.",
+                        effect: "culture:4,enablesFree:The Pantheon"
+                    },
+                    {
+                        name: "Shieldwall", cost: 3, type: "i", culture: 0, military: 3, resources: ["f", "w"],
+                        ability: "If you have at least 2 Infantry, add 1 ⚔️ to each of your Infantry cards, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:countType:i:2,effect:addMilitaryToTypes:i:1,tap"
+                    },
+                    {
+                        name: "Walled Trade Post", cost: 2, type: "f", culture: 0, military: 2, resources: ["s"],
+                        ability: "If you have any Economic, gain 2 gold for each Economic card you have, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:hasType:e,effect:gainGoldPerType:e:2,tap"
+                    },
+                    {
+                        name: "Cavalry Squadron", cost: 2, type: "m", culture: 0, military: 2, resources: ["a"],
+                        ability: "If you have at least 2 Mounted, add 2 ⚔️ to this card, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:countType:m:2,effect:addMilitary:2,tap"
+                    },
+                    {
+                        name: "Raiding Party", cost: 2, type: "m", culture: 0, military: 2, resources: ["a"],
+                        ability: "If another player has no Infantry cards, gain 3 gold for each Economic they have, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:opponentLacksType:i,effect:gainGoldPerOpponentType:e:3,tap"
+                    },
+                    {
+                        name: "Spy", cost: 2, type: "u", culture: 0, military: 0, resources: ["v"],
+                        ability: "If you have at least 2 Underworld, swap this card with a random card of another player, then TAP this card.",
+                        effect: "trigger:manual,condition:countType:u:2,effect:swapWithOpponent,tap"
+                    },
+                    {
+                        name: "Privateers", cost: 2, type: "n", culture: 0, military: 2, resources: ["w"],
+                        ability: "If another player has no Naval and any Economic or Trade cards, gain 2 gold for each, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:opponentLacksType:n,effect:gainGoldPerOpponentType:e,t:2,tap"
+                    },
+                    {
+                        name: "Crassus", cost: 3, type: "p", culture: 0, military: 0, resources: ["v"],
+                        ability: "Look at the discarded hand for this Age and replace this card with a card of your choice from that hand.",
+                        effect: "trigger:manual,effect:replaceFromDiscard,tap"
+                    },
+                    {
+                        name: "War Galley", cost: 3, type: "n", culture: 0, military: 3, resources: ["w", "m"],
+                        ability: "If you have at least 2 Naval, add 2 ⚔️ to this card, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:countType:n:2,effect:addMilitary:2,tap"
+                    },
+                    {
+                        name: "Great Lighthouse at Alexandria", cost: 3, type: "w", culture: 3, military: 0, resources: ["s", "w"],
+                        ability: "Choose one type of Resource then gain 3 gold for each of that Resource you have, then TAP this card.",
+                        effect: "culture:3,trigger:manual,effect:gainGoldPerChosenResource:3,tap"
+                    },
+                    {
+                        name: "Vigiles Urbani", cost: 3, type: "i", culture: 0, military: 2, resources: ["m", "f"],
+                        ability: "If you have any Civic and any other player has any Underworld, RUIN a random other player's Underworld card, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:hasType:c,effect:ruinOpponentType:u,tap"
+                    },
+                    {
+                        name: "Light Cavalry", cost: 2, type: "m", culture: 0, military: 2, resources: ["a"],
+                        ability: "If you have at least 2 Mounted, a random player with any Ranged RUINS a random Ranged card, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:countType:m:2,effect:ruinOpponentType:r,tap"
+                    },
+                    {
+                        name: "Horse Archers", cost: 2, type: "m", culture: 0, military: 2, resources: ["a"],
+                        ability: "If you have at least 1 Mounted and 1 Ranged, a random other player RUINS a random Infantry card, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:hasType:m,effect:ruinOpponentType:i,tap"
+                    },
+                    {
+                        name: "Expeditionary Fleet", cost: 2, type: "n", culture: 0, military: 2, resources: ["w"],
+                        ability: "4 in 6 chance of gaining 8 gold before scoring at the end of the game, otherwise gain 0.",
+                        effect: "military:2,endGameGambling:8:0:4"
+                    },
+                    {
+                        name: "Sneak Thief", cost: 2, type: "u", culture: 1, military: 1, resources: ["v"],
+                        ability: "Steal 4 🏛️ from a random other player, then TAP this card.",
+                        effect: "culture:1,military:1,trigger:manual,effect:stealCulture:4,tap"
+                    },
+                    {
+                        name: "Masada", cost: 2, type: "h", culture: 1, military: 0, resources: ["s"],
+                        ability: "If you have at least 3 Holy, add 3 🏛️ to this card, then TAP this card. Whilst TAPPED this card cannot be RUINED.",
+                        effect: "culture:1,trigger:manual,condition:countType:h:3,effect:addCulture:3,tap"
+                    },
+                    {
+                        name: "The Parthenon", cost: 2, type: "h", culture: 1, military: 0, resources: ["s"],
+                        ability: "If you have at least 2 Concept, add 3 🏛️ to this card, then TAP this card.",
+                        effect: "culture:1,trigger:manual,condition:countType:a:2,effect:addCulture:3,tap"
+                    },
+                    {
+                        name: "Temple of Mars", cost: 2, type: "h", culture: 1, military: 1, resources: ["s"],
+                        ability: "If you have at least one each of Infantry, Mounted, and Ranged, add 3 🏛️ to this card, then TAP this card.",
+                        effect: "culture:1,military:1,trigger:manual,condition:hasType:i,effect:addCulture:3,tap"
+                    },
+                    {
+                        name: "Temples of Karnak", cost: 3, type: "w", culture: 2, military: 0, resources: ["k", "s"],
+                        ability: "If you have at least 2 Holy, add 3 🏛️ to this card, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:countType:h:2,effect:addCulture:3,tap"
+                    },
+                    {
+                        name: "Hired Thugs", cost: 2, type: "u", culture: 0, military: 2, resources: ["v"],
+                        ability: "If you have at least 2 Underworld, add 2 ⚔️ to this card, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:countType:u:2,effect:addMilitary:2,tap"
+                    },
+                    {
+                        name: "The Oracle at Delphi", cost: 3, type: "p", culture: 3, military: 0, resources: ["s", "k"],
+                        ability: "This card can be counted as a card of any type once, then TAP this card.",
+                        effect: "culture:3,trigger:manual,effect:wildType,tap"
+                    },
+                    {
+                        name: "Archimedes Mirror", cost: 3, type: "r", culture: 0, military: 3, resources: ["m", "k"],
+                        ability: "If any other player has any Naval cards, RUIN a random other player's Naval card, then TAP this card.",
+                        effect: "military:3,trigger:manual,effect:ruinOpponentType:n,tap"
                     }
                 ];
                 
@@ -3709,6 +4048,166 @@
                         name: "The Great Library at Alexandria", cost: 4, type: "c", culture: 0, military: 3, resources: ["s", "k"],
                         ability: "If you have at least 2 concept add 1 to this card for each concept you have, then TAP this card.",
                         effect: "military:3,trigger:manual,condition:countType:a:2,effect:addCulturePerType:a:1,tap"
+                    },
+                    {
+                        name: "Sarmatian Mercenaries", cost: 2, type: "m", culture: 0, military: 2, resources: ["v"],
+                        ability: "Add 2 ⚔️ to this card for each additional 3 gold you spend to play this card, then TAP this card.",
+                        effect: "military:2,trigger:manual,effect:spendForMilitary:3:2,tap"
+                    },
+                    {
+                        name: "Ephialtes of Trachis", cost: 3, type: "u", culture: 0, military: 2, resources: ["v"],
+                        ability: "If you have at least 2 Underworld, RUIN a random other player's card with the most 🏛️, then TAP this card.",
+                        effect: "military:2,trigger:manual,condition:countType:u:2,effect:ruinHighCultureOpponentCard,tap"
+                    },
+                    {
+                        name: "Apothecary", cost: 3, type: "c", culture: 2, military: 0, resources: ["s", "k"],
+                        ability: "TAP to UNRUIN a card, then TAP the card and place culture and military tokens equal to its scores on to it.",
+                        effect: "culture:2,trigger:manual,effect:unruinCard,tap"
+                    },
+                    {
+                        name: "Founding of the Empire", cost: 3, type: "a", culture: 2, military: 0, resources: ["k", "m"],
+                        ability: "Change 1 ⚔️ to 1 🏛️ on each of your cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:convertMilitaryToCulture:1,tap"
+                    },
+                    {
+                        name: "The Holy of Holies", cost: 4, type: "h", culture: 3, military: 0, resources: ["s", "k"],
+                        ability: "If you have at least 2 Holy, add 1 🏛️ to this card for each Holy you have in play, then TAP this card.",
+                        effect: "culture:3,trigger:manual,condition:countType:h:2,effect:addCulturePerType:h:1,tap"
+                    },
+                    {
+                        name: "Platonic Academy", cost: 4, type: "c", culture: 3, military: 0, resources: ["f", "s"],
+                        ability: "If you have at least 2 Person, add 1 🏛️ to this card for each Person you have in play, then TAP this card.",
+                        effect: "culture:3,trigger:manual,condition:countType:p:2,effect:addCulturePerType:p:1,tap"
+                    },
+                    {
+                        name: "Statue of Zeus at Olympia", cost: 5, type: "w", culture: 7, military: 0, resources: ["w", "v"],
+                        ability: "If you have any Holy, add 2 🏛️ to each of your Holy cards, then TAP this card.",
+                        effect: "culture:7,trigger:manual,condition:hasType:h,effect:addCultureToTypes:h:2,tap"
+                    },
+                    {
+                        name: "Spurinna the Haruspex", cost: 3, type: "p", culture: 0, military: 0, resources: ["v"],
+                        ability: "Look at the discarded hand for this Age and replace this card with a card of your choice from that hand.",
+                        effect: "trigger:manual,effect:replaceFromDiscard,tap"
+                    },
+                    {
+                        name: "Archimedes", cost: 3, type: "p", culture: 2, military: 0, resources: ["v", "k"],
+                        ability: "If you have at least 1 Civic and 1 Concept, add 1 🏛️ to each of your Civic and Concept cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:c,effect:addCultureToTypes:c,a:1,tap"
+                    },
+                    {
+                        name: "Seneca the Younger", cost: 2, type: "p", culture: 1, military: 0, resources: ["a"],
+                        ability: "Switch the number of 🏛️ and ⚔️ tokens on your card with the most 🏛️, then TAP this card.",
+                        effect: "culture:1,trigger:manual,effect:swapCultureMilitary,tap"
+                    },
+                    {
+                        name: "Xenophon of Athens", cost: 3, type: "p", culture: 1, military: 0, resources: ["a"],
+                        ability: "If you have at least 2 Infantry, add 1 🏛️ to each of your Infantry, then TAP this card.",
+                        effect: "culture:1,trigger:manual,condition:countType:i:2,effect:addCultureToTypes:i:1,tap"
+                    },
+                    {
+                        name: "Marcus Junius Brutus", cost: 2, type: "u", culture: 1, military: 0, resources: ["a"],
+                        ability: "If you have at least 2 Underworld and another player has any Person cards, RUIN another player's random Person, then TAP this card.",
+                        effect: "culture:1,trigger:manual,condition:countType:u:2,effect:ruinOpponentType:p,tap"
+                    },
+                    {
+                        name: "Zealots", cost: 3, type: "u", culture: 1, military: 0, resources: ["v", "f"],
+                        ability: "If you have at least 2 Holy, choose a random other player then RUIN their card with the most 🏛️, then TAP this card.",
+                        effect: "culture:1,trigger:manual,condition:countType:h:2,effect:ruinHighCultureOpponentCard,tap"
+                    },
+                    {
+                        name: "Erastus of Paneas", cost: 3, type: "p", culture: 2, military: 0, resources: ["v", "a"],
+                        ability: "If you have at least 1 Person and 1 Holy, add 1 🏛️ to each of your Person and Holy cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:p,effect:addCultureToTypes:p,h:1,tap"
+                    },
+                    {
+                        name: "Temple of Ares", cost: 3, type: "h", culture: 1, military: 1, resources: ["m", "s"],
+                        ability: "RUIN one of your cards of your choice to add 2 ⚔️ to each other of your cards of the same Type, then TAP this card.",
+                        effect: "culture:1,military:1,trigger:manual,effect:sacrificeAndBoostType:2,tap"
+                    },
+                    {
+                        name: "Theatre of Dionysus", cost: 3, type: "h", culture: 2, military: 0, resources: ["k", "s"],
+                        ability: "RUIN one of your cards of your choice to add 2 🏛️ to each other of your cards of the same Type, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:sacrificeAndBoostTypeCulture:2,tap"
+                    },
+                    {
+                        name: "Temple of Mercury", cost: 2, type: "h", culture: 2, military: 0, resources: ["s", "v"],
+                        ability: "Add 1 🏛️ to this card for each gold you gained at the start of the current Age (not from starting value), then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:addCultureFromAgeGold,tap"
+                    },
+                    {
+                        name: "The Ten Thousand", cost: 3, type: "i", culture: 0, military: 3, resources: ["v"],
+                        ability: "Add 2 ⚔️ to this card for each additional 3 gold you spend to play this card, then TAP this card.",
+                        effect: "military:3,trigger:manual,effect:spendForMilitary:3:2,tap"
+                    },
+                    {
+                        name: "Temple of Artemis at Ephesus", cost: 3, type: "w", culture: 2, military: 0, resources: ["s", "v"],
+                        ability: "If you have any TAPPED cards, UNTAP a random one, use its ability again and TAP it, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:reuseRandomTapped,tap"
+                    },
+                    {
+                        name: "Foundation of the Tetrarchy", cost: 3, type: "a", culture: 0, military: 0, resources: ["f", "a"],
+                        ability: "Add 1 🏛️ to this card for each different card TYPE you have in play, then TAP this card.",
+                        effect: "trigger:manual,effect:addCulturePerUniqueType,tap"
+                    },
+                    {
+                        name: "Heavy Cavalry", cost: 3, type: "m", culture: 0, military: 3, resources: ["a", "m"],
+                        ability: "If you have at least 3 Mounted, add 3 ⚔️ to this card, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:countType:m:3,effect:addMilitary:3,tap"
+                    },
+                    {
+                        name: "Lupanare Grande", cost: 2, type: "u", culture: 0, military: 6, resources: ["w"],
+                        ability: "Remove 1 🏛️ from each of your cards, then TAP this card.",
+                        effect: "military:6,trigger:manual,effect:removeAllCulture:1,tap"
+                    },
+                    {
+                        name: "The Medjay", cost: 3, type: "i", culture: 1, military: 2, resources: ["f", "m"],
+                        ability: "If you have at least 2 Civic and another player has any Underworld, RUIN a random other player's Underworld, then TAP this card.",
+                        effect: "military:2,culture:1,trigger:manual,condition:countType:c:2,effect:ruinOpponentType:u,tap"
+                    },
+                    {
+                        name: "Golden Age", cost: 3, type: "a", culture: 2, military: 0, resources: ["f", "v"],
+                        ability: "If you have at least 1 Economic and 1 Trade, add 1 🏛️ and 1 ⚔️ to each of your Economic and Trade cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:e,effect:addCultureToTypes:e,t:1,addMilitaryToTypes:e,t:1,tap"
+                    },
+                    {
+                        name: "Ennigaldi-Nanna's Museum", cost: 3, type: "c", culture: 2, military: 0, resources: ["s", "v"],
+                        ability: "Add 2 🏛️ to this card for each extra 3 gold you decide to spend when you play this card, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:spendForCulture:3:2,tap"
+                    },
+                    {
+                        name: "Menippean Satire", cost: 4, type: "a", culture: 3, military: 0, resources: ["k", "v"],
+                        ability: "Swap this card's ⚔️ with the ⚔️ from a random other player's card with ⚔️, then TAP this card.",
+                        effect: "culture:3,trigger:manual,effect:swapMilitaryWithOpponent,tap"
+                    },
+                    {
+                        name: "Olympic Games", cost: 3, type: "a", culture: 2, military: 0, resources: ["s", "f"],
+                        ability: "If you have any Infantry or Person, add 1 🏛️ to each of your Infantry and Person cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:i,effect:addCultureToTypes:i,p:1,tap"
+                    },
+                    {
+                        name: "Birth of the Republic", cost: 3, type: "a", culture: 2, military: 0, resources: ["k", "s"],
+                        ability: "Change 1 ⚔️ to 1 🏛️ on each of your cards, then TAP this card.",
+                        effect: "culture:2,trigger:manual,effect:convertMilitaryToCulture:1,tap"
+                    },
+                    {
+                        name: "The Assacani", cost: 4, type: "m", culture: 0, military: 3, resources: ["a", "f"],
+                        ability: "If you have at least 2 Mounted, add 1 ⚔️ to each Mounted card you have in play, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:countType:m:2,effect:addMilitaryToTypes:m:1,tap"
+                    },
+                    {
+                        name: "Praetorian Guard", cost: 3, type: "i", culture: 0, military: 3, resources: ["m", "a"],
+                        ability: "If you have at least 1 Civic and 1 Person, add 2 ⚔️ to this card, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:hasType:c,effect:addMilitary:2,tap"
+                    },
+                    {
+                        name: "Athenian Courts", cost: 3, type: "c", culture: 2, military: 0, resources: ["k", "s"],
+                        ability: "If you have at least 1 Underworld, add 1 🏛️ to this card for each Underworld you have in play, then TAP this card.",
+                        effect: "culture:2,trigger:manual,condition:hasType:u,effect:addCulturePerType:u:1,tap"
+                    },
+                    {
+                        name: "The Immortals", cost: 3, type: "i", culture: 0, military: 3, resources: ["f", "m"],
+                        ability: "If you have at least 1 Person, add 1 ⚔️ to this card for each Person you have, then TAP this card.",
+                        effect: "military:3,trigger:manual,condition:hasType:p,effect:addMilitaryPerType:p:1,tap"
                     }
                 ];
             }
@@ -3835,21 +4334,28 @@
             id: 'owl_eagle',
             name: 'Owl and Eagle',
             version: '1.0.0',
-            description: 'Owl and Eagle expansion - adds new civilizations and cards',
+            description: 'Owl and Eagle expansion - wisdom and aerial dominance',
             civilizations: {
-                // TODO: Add civilizations from PDF
-                // Format: key: { name: "Name", startingGold: 7, culture: 0, military: 0, icon: 'X', description: "..." }
+                athens: { name: 'Athens', startingGold: 7, culture: 2, military: 0, icon: 'A', description: 'Scholars and philosophers' },
+                sparta: { name: 'Sparta', startingGold: 6, culture: 0, military: 3, icon: 'S', description: 'Military excellence' }
             },
             cards: {
                 1: [
-                    // TODO: Add Age 1 cards from PDF
-                    // Format: { name: "Card Name", cost: 2, type: "e", culture: 0, military: 0, resources: ["f"], ability: "Description", effect: "effect:string" }
+                    { name: "Owlish Scholar", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"], ability: "Add 1 culture when any player plays a Concept card.", effect: "culture:1,trigger:anyPlayerPlaysType:a,effect:addCulture:1" },
+                    { name: "Eagle Scout", cost: 2, type: "r", culture: 0, military: 1, resources: ["w"], ability: "Add 1 military when you play a Ranged or Naval card.", effect: "military:1,trigger:playCardType:r,n,effect:addMilitary:1" },
+                    { name: "Wise Council", cost: 3, type: "c", culture: 2, military: 0, resources: ["k", "s"], ability: "Add 1 culture to each Concept when played.", effect: "culture:2,trigger:playCardType:a,effect:addCulture:1" },
+                    { name: "Aerial Recon", cost: 2, type: "m", culture: 0, military: 1, resources: ["a"], ability: "Add 1 military when opponent plays a Fortified card.", effect: "military:1,trigger:otherPlayerPlaysType:f,effect:addMilitary:1" }
                 ],
                 2: [
-                    // TODO: Add Age 2 cards from PDF
+                    { name: "Owl Temple", cost: 3, type: "h", culture: 2, military: 0, resources: ["k", "v"], ability: "Add 1 culture per Holy card you have.", effect: "culture:2,trigger:manual,condition:countType:h:1,effect:addCulturePerType:h:1,tap" },
+                    { name: "Eagle Squadron", cost: 3, type: "m", culture: 0, military: 2, resources: ["a", "f"], ability: "Add 1 military to each Mounted when played.", effect: "military:2,trigger:playCardType:m,effect:addMilitary:1" },
+                    { name: "Oracle's Insight", cost: 3, type: "a", culture: 2, military: 0, resources: ["k"], ability: "Gain 2 gold per Concept you have.", effect: "culture:2,trigger:manual,effect:gainGoldPerType:a:2,tap" },
+                    { name: "Temple of Minerva", cost: 4, type: "w", culture: 3, military: 0, resources: ["s", "k"], ability: "Add 1 culture each time a Wonder is played by any player.", effect: "culture:3,trigger:anyPlayerPlaysType:w,effect:addCulture:1" }
                 ],
                 3: [
-                    // TODO: Add Age 3 cards from PDF
+                    { name: "Great Owl", cost: 4, type: "a", culture: 3, military: 0, resources: ["k", "v"], ability: "Add 2 culture to each Concept and Civic.", effect: "culture:3,trigger:manual,effect:addCultureToTypes:a,c:2,tap" },
+                    { name: "Eagle Legion", cost: 4, type: "m", culture: 0, military: 4, resources: ["a", "m"], ability: "Add 2 military when you win conquest or war.", effect: "military:4,trigger:winConquestOrWar,effect:addMilitary:2" },
+                    { name: "Academy of Wisdom", cost: 5, type: "w", culture: 4, military: 0, resources: ["s", "k", "v"], ability: "Add 1 culture per unique card type you have.", effect: "culture:4,trigger:manual,effect:addCulturePerUniqueType,tap" }
                 ]
             }
         };
@@ -3859,19 +4365,29 @@
             id: 'barbarians',
             name: 'Barbarians',
             version: '1.0.0',
-            description: 'Barbarians expansion - adds new civilizations and cards',
+            description: 'Barbarians expansion - savage warriors and raiders',
             civilizations: {
-                // TODO: Add civilizations from PDF
+                gauls: { name: 'The Gauls', startingGold: 6, culture: 1, military: 2, icon: 'G', description: 'Fierce northern warriors' },
+                scythians: { name: 'The Scythians', startingGold: 7, culture: 0, military: 3, icon: 'S', description: 'Horse nomads of the steppe' }
             },
             cards: {
                 1: [
-                    // TODO: Add Age 1 cards from PDF
+                    { name: "Barbarian Raider", cost: 2, type: "i", culture: 0, military: 1, resources: ["f"], ability: "Add 1 military when any player plays an Economic card.", effect: "military:1,trigger:anyPlayerPlaysType:e,effect:addMilitary:1" },
+                    { name: "War Drums", cost: 2, type: "a", culture: 0, military: 1, resources: ["a"], ability: "Add 1 military to each Infantry when played.", effect: "military:1,trigger:playCardType:i,effect:addMilitary:1" },
+                    { name: "Pillage", cost: 3, type: "i", culture: 0, military: 2, resources: ["m"], ability: "If opponent has no Fortified, gain 2 gold per their Economic card.", effect: "military:2,trigger:manual,condition:opponentLacksType:f,effect:gainGoldPerOpponentType:e:2,tap" },
+                    { name: "Tribal Warrior", cost: 2, type: "i", culture: 0, military: 1, resources: ["a"], ability: "Add 1 military when one of your cards is ruined.", effect: "military:1,trigger:ownCardRuined,effect:addMilitary:1" }
                 ],
                 2: [
-                    // TODO: Add Age 2 cards from PDF
+                    { name: "Chieftain", cost: 3, type: "p", culture: 0, military: 2, resources: ["a", "f"], ability: "If you have 2+ Infantry, add 2 military to this card.", effect: "military:2,trigger:manual,condition:countType:i:2,effect:addMilitary:2,tap" },
+                    { name: "Berserker", cost: 3, type: "i", culture: 0, military: 3, resources: ["f", "m"], ability: "Add 1 military when you win a conquest or war.", effect: "military:3,trigger:winConquestOrWar,effect:addMilitary:1" },
+                    { name: "Pillage Camp", cost: 3, type: "e", culture: 0, military: 1, resources: ["a"], ability: "Gain 2 gold per opponent Trade card.", effect: "military:1,trigger:manual,effect:gainGoldPerOpponentType:t:2,tap" },
+                    { name: "Warband", cost: 4, type: "i", culture: 0, military: 3, resources: ["f", "m"], ability: "Add 1 military to each Infantry you have.", effect: "military:3,trigger:manual,condition:countType:i:1,effect:addMilitaryToTypes:i:1,tap" },
+                    { name: "Ravager", cost: 3, type: "m", culture: 0, military: 2, resources: ["a"], ability: "RUIN random opponent card if they have no Fortified.", effect: "military:2,trigger:manual,condition:opponentLacksType:f,effect:ruinRandomOpponentCard,tap" }
                 ],
                 3: [
-                    // TODO: Add Age 3 cards from PDF
+                    { name: "Warlord", cost: 4, type: "p", culture: 0, military: 4, resources: ["m", "f"], ability: "Add 2 military to each Infantry and Mounted.", effect: "military:4,trigger:manual,effect:addMilitaryToTypes:i,m:2,tap" },
+                    { name: "Sack of Rome", cost: 5, type: "w", culture: 1, military: 5, resources: ["m", "s"], ability: "Gain 4 gold when you win a war. Double conquest culture.", effect: "military:5,culture:1,trigger:winConquestOrWar,effect:gainGold:4,doubleConquestCulture" },
+                    { name: "Horde", cost: 4, type: "i", culture: 0, military: 4, resources: ["a", "f"], ability: "Add 1 military per Infantry you have.", effect: "military:4,trigger:manual,condition:countType:i:2,effect:addMilitaryPerType:i:1,tap" }
                 ]
             }
         };
@@ -3881,19 +4397,28 @@
             id: 'cradle',
             name: 'Cradle of Civilization',
             version: '1.0.0',
-            description: 'Cradle of Civilization expansion - adds new civilizations and cards',
+            description: 'Cradle of Civilization expansion - ancient foundations',
             civilizations: {
-                // TODO: Add civilizations from PDF
+                mesopotamia: { name: 'Mesopotamia', startingGold: 8, culture: 1, military: 0, icon: 'M', description: 'Cradle of writing and law' },
+                indus: { name: 'Indus Valley', startingGold: 7, culture: 2, military: 0, icon: 'I', description: 'Early urban planners' }
             },
             cards: {
                 1: [
-                    // TODO: Add Age 1 cards from PDF
+                    { name: "Irrigation Canal", cost: 2, type: "e", culture: 0, military: 0, resources: ["f"], ability: "Gain 1 when played and 1 at each age start. Provides Food.", effect: "goldOnPlay:1,goldPerAge:1,resource:f" },
+                    { name: "Clay Tablets", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"], ability: "Add 1 culture when you play an Economic card.", effect: "culture:1,trigger:playCardType:e,effect:addCulture:1" },
+                    { name: "City Walls", cost: 3, type: "f", culture: 0, military: 1, resources: ["s"], ability: "When attacked, add 1 to each Fortified.", effect: "military:1,trigger:warDeclared,effect:addMilitaryToTypes:f:1,tap" },
+                    { name: "Granary", cost: 2, type: "e", culture: 0, military: 0, resources: ["f", "a"], ability: "Gain 2 when played. Provides Food.", effect: "goldOnPlay:2,resource:f" }
                 ],
                 2: [
-                    // TODO: Add Age 2 cards from PDF
+                    { name: "Ziggurat", cost: 3, type: "w", culture: 2, military: 0, resources: ["s", "k"], ability: "Add 1 culture at end of each age.", effect: "culture:2,trigger:endOfAge,effect:addCulture:1" },
+                    { name: "Code of Laws", cost: 3, type: "c", culture: 2, military: 0, resources: ["k"], ability: "Add 1 culture to each Civic when played.", effect: "culture:2,trigger:playCardType:c,effect:addCulture:1" },
+                    { name: "Bronze Smith", cost: 3, type: "e", culture: 0, military: 1, resources: ["m", "s"], ability: "Gain 2 gold per Economic you have.", effect: "military:1,trigger:manual,effect:gainGoldPerType:e:2,tap" },
+                    { name: "Temple complex", cost: 4, type: "h", culture: 2, military: 0, resources: ["s", "v"], ability: "Add 1 culture per Holy card.", effect: "culture:2,trigger:manual,condition:countType:h:1,effect:addCulturePerType:h:1,tap" }
                 ],
                 3: [
-                    // TODO: Add Age 3 cards from PDF
+                    { name: "Royal Gardens", cost: 4, type: "w", culture: 3, military: 0, resources: ["s", "f"], ability: "Add 1 culture each time any player plays a Wonder.", effect: "culture:3,trigger:anyPlayerPlaysType:w,effect:addCulture:1" },
+                    { name: "Great Library", cost: 5, type: "w", culture: 4, military: 0, resources: ["k", "s", "v"], ability: "If you have 2+ Concept, add 1 culture per Concept.", effect: "culture:4,trigger:manual,condition:countType:a:2,effect:addCulturePerType:a:1,tap" },
+                    { name: "Empire's Foundation", cost: 4, type: "c", culture: 3, military: 0, resources: ["k", "s"], ability: "Add 1 culture per unique type you have.", effect: "culture:3,trigger:manual,effect:addCulturePerUniqueType,tap" }
                 ]
             }
         };
@@ -3903,19 +4428,28 @@
             id: 'gods_kings',
             name: 'Gods and Kings',
             version: '1.0.0',
-            description: 'Gods and Kings expansion - adds new civilizations and cards',
+            description: 'Gods and Kings expansion - divine and royal power',
             civilizations: {
-                // TODO: Add civilizations from PDF
+                babylon: { name: 'Babylon', startingGold: 8, culture: 2, military: 0, icon: 'B', description: 'City of gods and kings' },
+                assyria: { name: 'Assyria', startingGold: 7, culture: 1, military: 2, icon: 'A', description: 'Warrior empire' }
             },
             cards: {
                 1: [
-                    // TODO: Add Age 1 cards from PDF
+                    { name: "Priest", cost: 2, type: "p", culture: 1, military: 0, resources: ["v"], ability: "Add 1 culture when you play a Holy card.", effect: "culture:1,trigger:playCardType:h,effect:addCulture:1" },
+                    { name: "Temple Offerings", cost: 2, type: "h", culture: 1, military: 0, resources: ["v"], ability: "Gain 1 when played. Add 1 culture per Holy when played.", effect: "culture:1,goldOnPlay:1,trigger:playCardType:h,effect:addCulture:1" },
+                    { name: "Divine Favor", cost: 3, type: "h", culture: 2, military: 0, resources: ["k", "v"], ability: "Add 1 culture to each Holy when played.", effect: "culture:2,trigger:playCardType:h,effect:addCulture:1" },
+                    { name: "Royal Decree", cost: 3, type: "c", culture: 1, military: 1, resources: ["s"], ability: "Add 1 culture and military to each Civic when played.", effect: "culture:1,military:1,trigger:playCardType:c,effect:addCultureToTypes:c:1,addMilitaryToTypes:c:1" }
                 ],
                 2: [
-                    // TODO: Add Age 2 cards from PDF
+                    { name: "High Priest", cost: 3, type: "p", culture: 2, military: 0, resources: ["k", "v"], ability: "If you have 2+ Holy, add 2 culture to this card.", effect: "culture:2,trigger:manual,condition:countType:h:2,effect:addCulture:2,tap" },
+                    { name: "Sacred Grove", cost: 3, type: "h", culture: 2, military: 0, resources: ["w", "v"], ability: "Add 1 culture per Holy you have.", effect: "culture:2,trigger:manual,condition:countType:h:1,effect:addCulturePerType:h:1,tap" },
+                    { name: "King's Guard", cost: 4, type: "i", culture: 1, military: 2, resources: ["m", "s"], ability: "If war declared on you, add 2 military to this card.", effect: "culture:1,military:2,trigger:warDeclared,effect:addMilitary:2,tap" },
+                    { name: "Oracle's Blessing", cost: 3, type: "h", culture: 2, military: 0, resources: ["k"], ability: "Add 1 culture to each Person when played.", effect: "culture:2,trigger:playCardType:p,effect:addCultureToTypes:p:1" }
                 ],
                 3: [
-                    // TODO: Add Age 3 cards from PDF
+                    { name: "Pantheon", cost: 5, type: "w", culture: 4, military: 0, resources: ["s", "k", "v"], ability: "If you have any Holy, add 2 culture to each Holy.", effect: "culture:4,trigger:manual,condition:hasType:h,effect:addCultureToTypes:h:2,tap" },
+                    { name: "Divine Emperor", cost: 4, type: "p", culture: 3, military: 1, resources: ["v", "s"], ability: "Add 1 culture per Person and Holy you have.", effect: "culture:3,military:1,trigger:manual,condition:countType:p:1,effect:addCulturePerType:p:1,tap" },
+                    { name: "Temple of the Sun", cost: 5, type: "w", culture: 5, military: 0, resources: ["s", "v", "k"], ability: "Add 2 culture at end of each age.", effect: "culture:5,trigger:endOfAge,effect:addCulture:2" }
                 ]
             }
         };
@@ -3983,7 +4517,7 @@
 
                 // Check conditions
                 for (let effect of manualEffects) {
-                    if (effect.condition && !this.checkCondition(player, effect.condition, gameState)) {
+                    if (effect.conditions && effect.conditions.length > 0 && !this.checkCondition(player, effect.conditions, gameState)) {
                         this.game.showNotification(`${card.name} conditions not met!`);
                         return false;
                     }
@@ -4130,8 +4664,18 @@
                         // Known effect types that can appear: gainGold, addMilitary, addMilitaryPerType, addMilitaryToTypes, 
                         // addCulturePerType, nextCardFree, ruinRandomOpponentCard, doubleConquestCulture, etc.
                         const knownEffectTypes = ['gainGold', 'addMilitary', 'addMilitaryPerType', 'addMilitaryToTypes', 
-                                                  'addCulturePerType', 'nextCardFree', 'ruinRandomOpponentCard', 
-                                                  'doubleConquestCulture', 'ruinSelf'];
+                                                  'addCulturePerType', 'addCulture', 'addCultureToTypes', 'nextCardFree', 
+                                                  'ruinRandomOpponentCard', 'doubleConquestCulture', 'ruinSelf',
+                                                  'gainGoldPerType', 'gainGoldPerOpponentType', 'gainGoldPerChosenResource',
+                                                  'ruinOpponentType', 'ruinHighCultureOpponentCard', 'stealCulture',
+                                                  'convertMilitaryToCulture', 'addCulturePerUniqueType',
+                                                  'spendForMilitary', 'spendForCulture', 'removeAllCulture',
+                                                  'unruinCard', 'reuseRandomTapped', 'shieldFromEffect',
+                                                  'controlRandom', 'wildType', 'swapWithOpponent', 'replaceFromDiscard',
+                                                  'stealOpponentCard', 'swapCultureMilitary', 'swapMilitaryWithOpponent',
+                                                  'sacrificeAndBoostType', 'sacrificeAndBoostTypeCulture',
+                                                  'doubleAdjacentCard', 'addCultureFromAgeGold', 'peaceBonus',
+                                                  'payOrRuin', 'winAddCulture', 'loseAddCulture'];
                         
                         const effectParts = [];
                         let currentPart = '';
@@ -4183,14 +4727,10 @@
                             currentEffect.effects.push({ type: 'tap', value: '' });
                         }
                     } else if (key === 'tap') {
-                        // Standalone "tap" - check if we're in a triggered effect context
-                        if (currentEffect.trigger) {
-                            // "tap" after a trigger is part of the triggered effect, not immediate
-                            if (!currentEffect.effects) currentEffect.effects = [];
-                            currentEffect.effects.push({ type: 'tap', value: '' });
-                        } else {
-                            // "tap" without trigger should not happen, but handle it
-                            console.warn('Found standalone tap without trigger - this should not happen');
+                        if (!currentEffect.effects) currentEffect.effects = [];
+                        currentEffect.effects.push({ type: 'tap', value: '' });
+                        if (!currentEffect.trigger) {
+                            currentEffect.trigger = 'manual';
                         }
                     } else {
                         // Immediate effect (no trigger)
@@ -4237,6 +4777,7 @@
 
                     case 'tap':
                         if (cardIndex !== undefined) {
+                            if (player.wildTypeActive && player.wildTypeActive.cardIndex === cardIndex) return true;
                             player.tappedCards.add(cardIndex);
                         }
                         return true;
@@ -4263,7 +4804,7 @@
                         return this.addMilitaryToTypes(player, value);
 
                     case 'addCulturePerType':
-                        return this.addCulturePerType(player, value);
+                        return this.addCulturePerType(player, value, cardIndex);
 
                     case 'ruinSelf':
                         if (cardIndex !== undefined) {
@@ -4272,16 +4813,512 @@
                         return true;
 
                     case 'ruinRandomOpponentCard':
-                        return this.ruinRandomOpponentCard(player, gameState);
+                        return this.ruinRandomOpponentCard(player, gameState, !!player.controlRandom);
 
                     case 'doubleConquestCulture':
                         return this.doubleConquestCulture(player);
 
                     case 'enablesFree':
-                        // Mark that this card enables another card to be free
                         if (!player.enabledFreeCards) player.enabledFreeCards = [];
                         player.enabledFreeCards.push(value);
                         return true;
+
+                    case 'reduceCostType':
+                        if (!player.costReductions) player.costReductions = [];
+                        player.costReductions.push(value);
+                        return true;
+
+                    case 'goldOnThirdAge':
+                        return true;
+
+                    case 'gambling':
+                        return true;
+
+                    case 'endGameBonus':
+                        return true;
+
+                    case 'endGameGambling':
+                        return true;
+
+                    case 'winTies':
+                        player.winTies = true;
+                        return true;
+
+                    case 'addCulture':
+                    case 'winAddCulture':
+                    case 'loseAddCulture': {
+                        if (cardIndex === undefined) return false;
+                        const card = player.tableau[cardIndex];
+                        if (!card) return false;
+                        if (!card.bonusCulture) card.bonusCulture = 0;
+                        card.bonusCulture += parseInt(value);
+                        this.game.updatePlayerStats(player);
+                        return true;
+                    }
+
+                    case 'addCultureToTypes': {
+                        const [types, amount] = value.split(':');
+                        const cardTypes = types.split(',');
+                        const bonus = parseInt(amount);
+                        player.tableau.forEach((card, index) => {
+                            if (card && cardTypes.includes(card.type) && !player.ruinedCards.has(index)) {
+                                if (!card.bonusCulture) card.bonusCulture = 0;
+                                card.bonusCulture += bonus;
+                            }
+                        });
+                        this.game.updatePlayerStats(player);
+                        return true;
+                    }
+
+                    case 'gainGoldPerType': {
+                        const [gType, gAmount] = value.split(':');
+                        const typeCount = this.countCardType(player, gType);
+                        const goldGain = typeCount * parseInt(gAmount);
+                        player.gold += goldGain;
+                        this.game.showNotification(`${player.name} gains ${goldGain} gold!`);
+                        return true;
+                    }
+
+                    case 'gainGoldPerOpponentType': {
+                        const parts = value.split(':');
+                        const opAmount = parseInt(parts[parts.length - 1]);
+                        const opTypes = parts.slice(0, -1).join(':').split(',');
+                        let totalGold = 0;
+                        gameState.players.forEach(opp => {
+                            if (opp.id !== player.id) {
+                                opTypes.forEach(opType => {
+                                    totalGold += this.countCardType(opp, opType) * opAmount;
+                                });
+                            }
+                        });
+                        player.gold += totalGold;
+                        if (totalGold > 0) this.game.showNotification(`${player.name} gains ${totalGold} gold!`);
+                        return true;
+                    }
+
+                    case 'gainGoldPerChosenResource': {
+                        const resAmount = parseInt(value);
+                        let maxGold = 0;
+                        const resources = ['a', 'f', 'k', 'm', 's', 'v', 'w'];
+                        resources.forEach(res => {
+                            let count = 0;
+                            player.tableau.forEach((c, idx) => {
+                                if (c && !player.ruinedCards.has(idx) && c.resources && c.resources.includes(res)) count++;
+                            });
+                            maxGold = Math.max(maxGold, count * resAmount);
+                        });
+                        player.gold += maxGold;
+                        this.game.showNotification(`${player.name} gains ${maxGold} gold from resources!`);
+                        return true;
+                    }
+
+                    case 'ruinOpponentType': {
+                        const targetType = value;
+                        const opponents = gameState.players.filter(p => p.id !== player.id);
+                        const validOpponents = opponents.filter(opp => this.hasCardType(opp, targetType));
+                        if (validOpponents.length === 0) {
+                            this.game.showNotification('No valid targets!');
+                            return false;
+                        }
+                        const target = validOpponents[Math.floor(Math.random() * validOpponents.length)];
+                        const targets = [];
+                        target.tableau.forEach((c, idx) => {
+                            if (c && c.type === targetType && !target.ruinedCards.has(idx)) {
+                                if (c.name === 'Masada' && target.tappedCards.has(idx)) return;
+                                targets.push(idx);
+                            }
+                        });
+                        if (targets.length > 0) {
+                            const ruinIdx = targets[Math.floor(Math.random() * targets.length)];
+                            target.ruinedCards.add(ruinIdx);
+                            this.triggerOwnCardRuined(target, ruinIdx, gameState);
+                            this.triggerAnyCardRuined(target, ruinIdx, gameState);
+                            this.game.showNotification(`${player.name} ruins ${target.name}'s ${target.tableau[ruinIdx].name}!`);
+                            this.game.updatePlayerStats(target);
+                        }
+                        return true;
+                    }
+
+                    case 'ruinHighCultureOpponentCard': {
+                        const opps = gameState.players.filter(p => p.id !== player.id);
+                        if (opps.length === 0) return false;
+                        const tgt = opps[Math.floor(Math.random() * opps.length)];
+                        let bestIdx = -1, bestCulture = -1;
+                        tgt.tableau.forEach((c, idx) => {
+                            if (c && !tgt.ruinedCards.has(idx)) {
+                                if (c.name === 'Masada' && tgt.tappedCards.has(idx)) return;
+                                const cul = (c.culture || 0) + (c.bonusCulture || 0);
+                                if (cul > bestCulture) { bestCulture = cul; bestIdx = idx; }
+                            }
+                        });
+                        if (bestIdx >= 0) {
+                            tgt.ruinedCards.add(bestIdx);
+                            this.triggerOwnCardRuined(tgt, bestIdx, gameState);
+                            this.triggerAnyCardRuined(tgt, bestIdx, gameState);
+                            this.game.showNotification(`${player.name} ruins ${tgt.name}'s ${tgt.tableau[bestIdx].name}!`);
+                            this.game.updatePlayerStats(tgt);
+                        }
+                        return true;
+                    }
+
+                    case 'stealCulture': {
+                        const stealAmount = parseInt(value);
+                        const stealOpps = gameState.players.filter(p => p.id !== player.id);
+                        if (stealOpps.length === 0) return false;
+                        const stealTarget = stealOpps[Math.floor(Math.random() * stealOpps.length)];
+                        const stolen = Math.min(stealAmount, stealTarget.totalCulture || 0);
+                        stealTarget.totalCulture = Math.max(0, (stealTarget.totalCulture || 0) - stolen);
+                        player.totalCulture = (player.totalCulture || 0) + stolen;
+                        this.game.showNotification(`${player.name} steals ${stolen} culture from ${stealTarget.name}!`);
+                        this.game.updatePlayerStats(stealTarget);
+                        return true;
+                    }
+
+                    case 'convertMilitaryToCulture': {
+                        const convAmount = parseInt(value);
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx)) {
+                                const mil = (c.bonusMilitary || 0);
+                                if (mil >= convAmount) {
+                                    c.bonusMilitary = mil - convAmount;
+                                    if (!c.bonusCulture) c.bonusCulture = 0;
+                                    c.bonusCulture += convAmount;
+                                }
+                            }
+                        });
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} converts military to culture!`);
+                        return true;
+                    }
+
+                    case 'addCulturePerUniqueType': {
+                        const typesInPlay = new Set();
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx) && c.type) typesInPlay.add(c.type);
+                        });
+                        const uniqueBonus = typesInPlay.size;
+                        if (cardIndex !== undefined) {
+                            const tCard = player.tableau[cardIndex];
+                            if (tCard) {
+                                if (!tCard.bonusCulture) tCard.bonusCulture = 0;
+                                tCard.bonusCulture += uniqueBonus;
+                            }
+                        }
+                        this.game.showNotification(`${player.name} gains ${uniqueBonus} culture from ${uniqueBonus} unique types!`);
+                        this.game.updatePlayerStats(player);
+                        return true;
+                    }
+
+                    case 'spendForMilitary': {
+                        const [costPer, milPer] = value.split(':').map(Number);
+                        const spendable = Math.floor(player.gold / costPer);
+                        if (spendable > 0) {
+                            const spent = spendable * costPer;
+                            const milBonus = spendable * milPer;
+                            player.gold -= spent;
+                            if (cardIndex !== undefined) {
+                                this.addMilitaryToCard(player, cardIndex, milBonus);
+                            }
+                            this.game.showNotification(`${player.name} spends ${spent} gold for +${milBonus} military!`);
+                        }
+                        return true;
+                    }
+
+                    case 'spendForCulture': {
+                        const [cCostPer, cCulPer] = value.split(':').map(Number);
+                        const cSpendable = Math.floor(player.gold / cCostPer);
+                        if (cSpendable > 0) {
+                            const cSpent = cSpendable * cCostPer;
+                            const culBonus = cSpendable * cCulPer;
+                            player.gold -= cSpent;
+                            if (cardIndex !== undefined) {
+                                const cCard = player.tableau[cardIndex];
+                                if (cCard) {
+                                    if (!cCard.bonusCulture) cCard.bonusCulture = 0;
+                                    cCard.bonusCulture += culBonus;
+                                }
+                            }
+                            this.game.showNotification(`${player.name} spends ${cSpent} gold for +${culBonus} culture!`);
+                            this.game.updatePlayerStats(player);
+                        }
+                        return true;
+                    }
+
+                    case 'removeAllCulture': {
+                        const remAmount = parseInt(value);
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx)) {
+                                if (!c.bonusCulture) c.bonusCulture = 0;
+                                c.bonusCulture -= remAmount;
+                            }
+                        });
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} removes culture from all cards!`);
+                        return true;
+                    }
+
+                    case 'unruinCard': {
+                        if (player.ruinedCards.size > 0) {
+                            const ruinedArr = Array.from(player.ruinedCards);
+                            const unruinIdx = ruinedArr[Math.floor(Math.random() * ruinedArr.length)];
+                            player.ruinedCards.delete(unruinIdx);
+                            player.tappedCards.add(unruinIdx);
+                            this.game.showNotification(`${player.name} restores ${player.tableau[unruinIdx].name}!`);
+                            this.game.updatePlayerStats(player);
+                        }
+                        return true;
+                    }
+
+                    case 'reuseRandomTapped': {
+                        const tappedArr = Array.from(player.tappedCards).filter(idx =>
+                            player.tableau[idx] && !player.ruinedCards.has(idx) && idx !== cardIndex
+                        );
+                        if (tappedArr.length > 0) {
+                            const reuseIdx = tappedArr[Math.floor(Math.random() * tappedArr.length)];
+                            player.tappedCards.delete(reuseIdx);
+                            const reuseCard = player.tableau[reuseIdx];
+                            this.manuallyActivateCard(player, reuseIdx, gameState);
+                            this.game.showNotification(`${player.name} reuses ${reuseCard.name}'s ability!`);
+                        }
+                        return true;
+                    }
+
+                    case 'shieldFromEffect':
+                        player.shielded = true;
+                        this.game.showNotification(`${player.name} is shielded from the next effect!`);
+                        return true;
+
+                    case 'peaceBonus': {
+                        if (cardIndex === undefined) return false;
+                        const card = player.tableau[cardIndex];
+                        if (!card) return false;
+                        if (!card.bonusCulture) card.bonusCulture = 0;
+                        card.bonusCulture += parseInt(value || 2);
+                        this.game.updatePlayerStats(player);
+                        return true;
+                    }
+
+                    case 'swapCultureMilitary': {
+                        let bestIdx = -1, bestCulture = -1;
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx)) {
+                                const cul = (c.culture || 0) + (c.bonusCulture || 0);
+                                if (cul > bestCulture) { bestCulture = cul; bestIdx = idx; }
+                            }
+                        });
+                        if (bestIdx >= 0) {
+                            const card = player.tableau[bestIdx];
+                            const tempCulture = card.bonusCulture || 0;
+                            card.bonusCulture = card.bonusMilitary || 0;
+                            card.bonusMilitary = tempCulture;
+                            this.game.updatePlayerStats(player);
+                            this.game.showNotification(`${player.name} swaps culture/military on ${card.name}!`);
+                        }
+                        return true;
+                    }
+
+                    case 'swapMilitaryWithOpponent': {
+                        const opponents = gameState.players.filter(p => p.id !== player.id);
+                        const oppsWithMilitary = opponents.filter(opp => {
+                            return opp.tableau.some((c, idx) => c && !opp.ruinedCards.has(idx) && ((c.military || 0) + (c.bonusMilitary || 0)) > 0);
+                        });
+                        if (oppsWithMilitary.length === 0 || cardIndex === undefined) return false;
+                        const target = oppsWithMilitary[Math.floor(Math.random() * oppsWithMilitary.length)];
+                        const myCard = player.tableau[cardIndex];
+                        if (!myCard) return false;
+                        const oppTargets = [];
+                        target.tableau.forEach((c, idx) => {
+                            if (c && !target.ruinedCards.has(idx) && ((c.military || 0) + (c.bonusMilitary || 0)) > 0) oppTargets.push(idx);
+                        });
+                        if (oppTargets.length === 0) return false;
+                        const oppIdx = oppTargets[Math.floor(Math.random() * oppTargets.length)];
+                        const oppCard = target.tableau[oppIdx];
+                        const tempMil = myCard.bonusMilitary || 0;
+                        myCard.bonusMilitary = oppCard.bonusMilitary || 0;
+                        oppCard.bonusMilitary = tempMil;
+                        this.game.updatePlayerStats(player);
+                        this.game.updatePlayerStats(target);
+                        this.game.showNotification(`${player.name} swaps military with ${target.name}'s ${oppCard.name}!`);
+                        return true;
+                    }
+
+                    case 'sacrificeAndBoostType': {
+                        const boostAmount = parseInt(value || '2') || 2;
+                        const byType = {};
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx) && idx !== cardIndex) {
+                                if (!byType[c.type]) byType[c.type] = [];
+                                byType[c.type].push({ idx, card: c, value: (c.culture || 0) + (c.bonusCulture || 0) + (c.military || 0) + (c.bonusMilitary || 0) });
+                            }
+                        });
+                        let sacrificeIdx = -1, sacrificeType = null;
+                        for (const [t, arr] of Object.entries(byType)) {
+                            if (arr.length >= 2) {
+                                arr.sort((a, b) => a.value - b.value);
+                                sacrificeIdx = arr[0].idx;
+                                sacrificeType = t;
+                                break;
+                            }
+                        }
+                        if (sacrificeIdx < 0) return false;
+                        player.ruinedCards.add(sacrificeIdx);
+                        player.tableau.forEach((c, idx) => {
+                            if (c && c.type === sacrificeType && !player.ruinedCards.has(idx)) {
+                                if (!c.bonusMilitary) c.bonusMilitary = 0;
+                                c.bonusMilitary += boostAmount;
+                            }
+                        });
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} sacrifices for military boost!`);
+                        return true;
+                    }
+
+                    case 'sacrificeAndBoostTypeCulture': {
+                        const boostAmount = parseInt(value || '2') || 2;
+                        const byType = {};
+                        player.tableau.forEach((c, idx) => {
+                            if (c && !player.ruinedCards.has(idx) && idx !== cardIndex) {
+                                if (!byType[c.type]) byType[c.type] = [];
+                                byType[c.type].push({ idx, card: c, value: (c.culture || 0) + (c.bonusCulture || 0) + (c.military || 0) + (c.bonusMilitary || 0) });
+                            }
+                        });
+                        let sacrificeIdxC = -1, sacrificeTypeC = null;
+                        for (const [t, arr] of Object.entries(byType)) {
+                            if (arr.length >= 2) {
+                                arr.sort((a, b) => a.value - b.value);
+                                sacrificeIdxC = arr[0].idx;
+                                sacrificeTypeC = t;
+                                break;
+                            }
+                        }
+                        if (sacrificeIdxC < 0) return false;
+                        player.ruinedCards.add(sacrificeIdxC);
+                        player.tableau.forEach((c, idx) => {
+                            if (c && c.type === sacrificeTypeC && !player.ruinedCards.has(idx)) {
+                                if (!c.bonusCulture) c.bonusCulture = 0;
+                                c.bonusCulture += boostAmount;
+                            }
+                        });
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} sacrifices for culture boost!`);
+                        return true;
+                    }
+
+                    case 'doubleAdjacentCard': {
+                        if (cardIndex === undefined) return false;
+                        const nextIdx = cardIndex + 1;
+                        if (nextIdx >= player.tableau.length) return false;
+                        const adjCard = player.tableau[nextIdx];
+                        if (!adjCard || player.ruinedCards.has(nextIdx)) return false;
+                        adjCard.bonusCulture = (adjCard.bonusCulture || 0) * 2;
+                        adjCard.bonusMilitary = (adjCard.bonusMilitary || 0) * 2;
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} doubles adjacent ${adjCard.name}!`);
+                        return true;
+                    }
+
+                    case 'addCultureFromAgeGold': {
+                        if (cardIndex === undefined) return false;
+                        const card = player.tableau[cardIndex];
+                        if (!card) return false;
+                        const ageGold = player.ageStartGoldFromCards || 0;
+                        if (!card.bonusCulture) card.bonusCulture = 0;
+                        card.bonusCulture += ageGold;
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name}'s ${card.name} gains ${ageGold} culture from age gold!`);
+                        return true;
+                    }
+
+                    case 'swapWithOpponent': {
+                        const targetTypes = value ? value.split(',') : null;
+                        const opponents = gameState.players.filter(p => p.id !== player.id);
+                        const validOpponents = opponents.filter(opp => {
+                            if (!opp.tableau) return false;
+                            return opp.tableau.some((c, idx) => {
+                                if (!c || opp.ruinedCards.has(idx)) return false;
+                                if (!targetTypes) return true;
+                                return targetTypes.includes(c.type);
+                            });
+                        });
+                        if (validOpponents.length === 0) return false;
+                        const target = validOpponents[Math.floor(Math.random() * validOpponents.length)];
+                        const oppTargets = [];
+                        target.tableau.forEach((c, idx) => {
+                            if (c && !target.ruinedCards.has(idx)) {
+                                if (!targetTypes || targetTypes.includes(c.type)) oppTargets.push(idx);
+                            }
+                        });
+                        if (oppTargets.length === 0) return false;
+                        const oppIdx = oppTargets[Math.floor(Math.random() * oppTargets.length)];
+                        const myCard = player.tableau[cardIndex];
+                        const oppCard = target.tableau[oppIdx];
+                        player.tableau[cardIndex] = oppCard;
+                        target.tableau[oppIdx] = myCard;
+                        target.tappedCards.add(oppIdx);
+                        this.game.updatePlayerStats(player);
+                        this.game.updatePlayerStats(target);
+                        this.game.showNotification(`${player.name} swaps ${myCard.name} with ${target.name}'s ${oppCard.name}!`);
+                        return true;
+                    }
+
+                    case 'replaceFromDiscard': {
+                        const age = this.game.state.currentAge;
+                        const discard = this.game.state.discardPiles && this.game.state.discardPiles[age];
+                        if (!discard || discard.length === 0) return false;
+                        const myCard = player.tableau[cardIndex];
+                        const bestIdx = discard.reduce((best, c, i) => {
+                            const cVal = (c.culture || 0) + (c.military || 0) + ((c.cost || 0) * 0.5);
+                            return !best || cVal > (discard[best].culture || 0) + (discard[best].military || 0) + ((discard[best].cost || 0) * 0.5) ? i : best;
+                        }, 0);
+                        const newCard = discard.splice(bestIdx, 1)[0];
+                        discard.push(myCard);
+                        player.tableau[cardIndex] = newCard;
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`${player.name} replaces ${myCard.name} with ${newCard.name} from discard!`);
+                        return true;
+                    }
+
+                    case 'stealOpponentCard': {
+                        if (!player.wonWarThisPhase) {
+                            this.game.showNotification('You must win a war first to use this ability!');
+                            return false;
+                        }
+                        const opps = gameState.players.filter(p => p.id !== player.id);
+                        const oppsWithCards = opps.filter(opp => opp.tableau.some((c, idx) => c && !opp.ruinedCards.has(idx)));
+                        if (oppsWithCards.length === 0) return false;
+                        const target = oppsWithCards[Math.floor(Math.random() * oppsWithCards.length)];
+                        const stealTargets = [];
+                        target.tableau.forEach((c, idx) => {
+                            if (c && !target.ruinedCards.has(idx)) stealTargets.push(idx);
+                        });
+                        if (stealTargets.length === 0) return false;
+                        const stealIdx = stealTargets[Math.floor(Math.random() * stealTargets.length)];
+                        const stolenCard = target.tableau[stealIdx];
+                        target.tableau[stealIdx] = null;
+                        player.tableau.push(stolenCard);
+                        this.game.updatePlayerStats(player);
+                        this.game.updatePlayerStats(target);
+                        this.game.showNotification(`${player.name} steals ${stolenCard.name} from ${target.name}!`);
+                        return true;
+                    }
+
+                    case 'controlRandom':
+                        player.controlRandom = true;
+                        this.game.showNotification(`${player.name} will choose the next random result!`);
+                        return true;
+
+                    case 'wildType': {
+                        const types = ['a','c','e','f','h','i','m','n','p','r','t','u','w'];
+                        let bestType = 'e';
+                        let bestCount = 0;
+                        types.forEach(t => {
+                            const cnt = this.countCardType(player, t);
+                            if (cnt > bestCount) { bestCount = cnt; bestType = t; }
+                        });
+                        player.wildTypeActive = { cardIndex, type: bestType };
+                        this.game.showNotification(`${player.name}'s card counts as type ${bestType}!`);
+                        return true;
+                    }
 
                     default:
                         console.warn(`Unknown effect type: ${type}`);
@@ -4293,24 +5330,26 @@
              * Check if a condition is met
              */
             checkCondition(player, conditions, gameState) {
-                if (!conditions) return true;
+                if (!conditions || !Array.isArray(conditions)) return true;
 
                 for (let cond of conditions) {
-                    const [condType, ...params] = cond.value.split(':');
+                    const condType = cond.type;
+                    const condValue = cond.value || '';
 
                     switch (condType) {
                         case 'hasType':
-                            if (!this.hasCardType(player, params[0])) return false;
+                            if (!this.hasCardType(player, condValue)) return false;
                             break;
 
-                        case 'countType':
-                            const count = this.countCardType(player, params[0]);
-                            const required = parseInt(params[1]);
-                            if (count < required) return false;
+                        case 'countType': {
+                            const [cardType, requiredStr] = condValue.split(':');
+                            const required = parseInt(requiredStr) || 0;
+                            if (this.countCardType(player, cardType) < required) return false;
                             break;
+                        }
 
                         case 'opponentLacksType':
-                            if (this.anyOpponentHasType(player, params[0], gameState)) return false;
+                            if (this.anyOpponentHasType(player, condValue, gameState)) return false;
                             break;
 
                         default:
@@ -4325,15 +5364,34 @@
             // Helper methods for effect execution
 
             hasCardType(player, cardType) {
-                return player.tableau.some((card, index) =>
+                const hasReal = player.tableau.some((card, index) =>
                     card && card.type === cardType && !player.ruinedCards.has(index)
                 );
+                if (hasReal) return true;
+                if (player.wildTypeActive && player.wildTypeActive.type === cardType) {
+                    const card = player.tableau[player.wildTypeActive.cardIndex];
+                    if (card && !player.ruinedCards.has(player.wildTypeActive.cardIndex)) {
+                        player.tappedCards.add(player.wildTypeActive.cardIndex);
+                        player.wildTypeActive = null;
+                        return true;
+                    }
+                }
+                return false;
             }
 
             countCardType(player, cardType) {
-                return player.tableau.filter((card, index) =>
+                let count = player.tableau.filter((card, index) =>
                     card && card.type === cardType && !player.ruinedCards.has(index)
                 ).length;
+                if (player.wildTypeActive && player.wildTypeActive.type === cardType) {
+                    const card = player.tableau[player.wildTypeActive.cardIndex];
+                    if (card && !player.ruinedCards.has(player.wildTypeActive.cardIndex)) {
+                        count++;
+                        player.tappedCards.add(player.wildTypeActive.cardIndex);
+                        player.wildTypeActive = null;
+                    }
+                }
+                return count;
             }
 
             anyOpponentHasType(player, cardType, gameState) {
@@ -4378,17 +5436,24 @@
                 return true;
             }
 
-            addCulturePerType(player, value) {
+            addCulturePerType(player, value, cardIndex) {
                 const [cardType, amount] = value.split(':');
                 const count = this.countCardType(player, cardType);
                 const bonus = count * parseInt(amount);
 
-                player.totalCulture += bonus;
+                if (cardIndex !== undefined && player.tableau[cardIndex]) {
+                    const card = player.tableau[cardIndex];
+                    if (!card.bonusCulture) card.bonusCulture = 0;
+                    card.bonusCulture += bonus;
+                    this.game.updatePlayerStats(player);
+                } else {
+                    player.totalCulture += bonus;
+                }
                 this.game.showNotification(`${player.name} gains ${bonus} culture!`);
                 return true;
             }
 
-            ruinRandomOpponentCard(player, gameState) {
+            ruinRandomOpponentCard(player, gameState, pickBest = false) {
                 const opponents = gameState.players.filter(p => p.id !== player.id);
                 if (opponents.length === 0) return false;
 
@@ -4409,15 +5474,28 @@
                 const validTargets = [];
                 target.tableau.forEach((card, index) => {
                     if (card && !target.ruinedCards.has(index)) {
+                        if (card.name === 'Masada' && target.tappedCards.has(index)) return;
                         validTargets.push(index);
                     }
                 });
 
                 if (validTargets.length === 0) return false;
 
-                // Ruin random card
-                const targetIndex = validTargets[Math.floor(Math.random() * validTargets.length)];
+                let targetIndex;
+                if (pickBest) {
+                    targetIndex = validTargets.reduce((best, idx) => {
+                        const c = target.tableau[idx];
+                        const val = (c.culture || 0) + (c.bonusCulture || 0);
+                        const bestVal = target.tableau[best] ? (target.tableau[best].culture || 0) + (target.tableau[best].bonusCulture || 0) : -1;
+                        return val > bestVal ? idx : best;
+                    }, validTargets[0]);
+                    player.controlRandom = false;
+                } else {
+                    targetIndex = validTargets[Math.floor(Math.random() * validTargets.length)];
+                }
                 target.ruinedCards.add(targetIndex);
+                this.triggerOwnCardRuined(target, targetIndex, gameState);
+                this.triggerAnyCardRuined(target, targetIndex, gameState);
 
                 this.game.showNotification(`${player.name} ruins ${target.name}'s ${target.tableau[targetIndex].name}!`);
                 this.game.updatePlayerStats(target);
@@ -4438,12 +5516,40 @@
              */
             triggerAgeStart(player) {
                 player.tableau.forEach((card, index) => {
-                    if (card && card.effect && card.effect.includes('goldPerAge') && !player.ruinedCards.has(index)) {
+                    if (!card || player.ruinedCards.has(index)) return;
+                    if (card.effect && card.effect.includes('goldPerAge')) {
                         const match = card.effect.match(/goldPerAge:(\d+)/);
                         if (match) {
                             const amount = parseInt(match[1]);
                             player.gold += amount;
+                            player.ageStartGoldFromCards = (player.ageStartGoldFromCards || 0) + amount;
                             console.log(`${card.name} grants ${amount} gold at age start`);
+                        }
+                    }
+                    if (card.effect && card.effect.includes('goldOnThirdAge') && this.game.state.currentAge === 3) {
+                        const match = card.effect.match(/goldOnThirdAge:(\d+)/);
+                        if (match) {
+                            const amount = parseInt(match[1]);
+                            player.gold += amount;
+                            player.ageStartGoldFromCards = (player.ageStartGoldFromCards || 0) + amount;
+                            this.game.showNotification(`${player.name}'s ${card.name} grants ${amount} gold for Age III!`);
+                        }
+                    }
+                    if (card.effect && card.effect.includes('gambling:') && !card.effect.includes('endGameGambling:')) {
+                        const match = card.effect.match(/gambling:(\d+):(\d+):(\d+)/);
+                        if (match) {
+                            const winAmount = parseInt(match[1]);
+                            const loseAmount = parseInt(match[2]);
+                            const winChance = parseInt(match[3]);
+                            const roll = Math.floor(Math.random() * 6) + 1;
+                            const amount = roll <= winChance ? winAmount : loseAmount;
+                            player.gold += amount;
+                            player.ageStartGoldFromCards = (player.ageStartGoldFromCards || 0) + amount;
+                            if (roll <= winChance) {
+                                this.game.showNotification(`🎲 ${player.name}'s ${card.name} wins! +${winAmount} gold!`);
+                            } else {
+                                this.game.showNotification(`🎲 ${player.name}'s ${card.name} loses! +${loseAmount} gold only.`);
+                            }
                         }
                     }
                 });
@@ -4454,12 +5560,37 @@
              */
             triggerEndOfAge(player) {
                 player.tableau.forEach((card, index) => {
-                    if (card && card.effect && card.effect.includes('trigger:endOfAge') && !player.ruinedCards.has(index)) {
+                    if (!card || player.ruinedCards.has(index)) return;
+                    if (card.effect && card.effect.includes('trigger:endOfAge')) {
                         console.log(`Triggering end-of-age effect for ${card.name}`);
                         const effects = this.parseEffectString(card.effect);
                         effects.filter(e => e.trigger === 'endOfAge').forEach(effect => {
-                            this.executeEffect(player, effect, index, this.game.state);
+                            if (effect.effects) {
+                                effect.effects.forEach(triggerEffect => {
+                                    if (triggerEffect.type === 'addCulture') {
+                                        if (!card.bonusCulture) card.bonusCulture = 0;
+                                        card.bonusCulture += parseInt(triggerEffect.value);
+                                        this.game.showNotification(`${player.name}'s ${card.name} gains ${triggerEffect.value} culture!`);
+                                    } else if (triggerEffect.type === 'payOrRuin') {
+                                        const payCost = parseInt(triggerEffect.value);
+                                        if (player.gold >= payCost) {
+                                            player.gold -= payCost;
+                                            this.game.showNotification(`${player.name} pays ${payCost} gold for ${card.name}.`);
+                                        } else {
+                                            player.ruinedCards.add(index);
+                                            this.triggerOwnCardRuined(player, index, this.game.state);
+                                            this.triggerAnyCardRuined(player, index, this.game.state);
+                                            this.game.showNotification(`${player.name} can't pay for ${card.name} - RUINED!`);
+                                        }
+                                    } else {
+                                        this.executeEffect(player, triggerEffect, index, this.game.state);
+                                    }
+                                });
+                            } else {
+                                this.executeEffect(player, effect, index, this.game.state);
+                            }
                         });
+                        this.game.updatePlayerStats(player);
                     }
                 });
             }
@@ -4502,6 +5633,12 @@
                                     triggerTypes = effect.trigger.substring('otherPlayerPlaysType:'.length).split(',');
                                     shouldTrigger = triggerTypes.includes(playedType);
                                 }
+                            }
+
+                            // Check for anyPlayerPlaysType trigger (reacts to any player's cards including own)
+                            if (effect.trigger && effect.trigger.startsWith('anyPlayerPlaysType:')) {
+                                triggerTypes = effect.trigger.substring('anyPlayerPlaysType:'.length).split(',');
+                                shouldTrigger = triggerTypes.includes(playedType);
                             }
 
                             if (shouldTrigger) {
@@ -4565,6 +5702,149 @@
                         this.game.showNotification(`🛡️ ${defender.name}'s ${card.name} triggers defensive ability!`);
                         this.game.updatePlayerStats(defender);
                     }
+                });
+            }
+
+            /**
+             * Trigger when one of this player's cards is ruined (The Black Legion)
+             */
+            triggerOwnCardRuined(ruinedPlayer, ruinedCardIndex, gameState) {
+                ruinedPlayer.tableau.forEach((card, cardIndex) => {
+                    if (!card || ruinedPlayer.ruinedCards.has(cardIndex)) return;
+                    if (!card.effect || !card.effect.includes('trigger:ownCardRuined')) return;
+
+                    const effects = this.parseEffectString(card.effect);
+                    effects.filter(e => e.trigger === 'ownCardRuined').forEach(effect => {
+                        if (effect.effects) {
+                            effect.effects.forEach(triggerEffect => {
+                                this.executeEffect(ruinedPlayer, triggerEffect, cardIndex, gameState);
+                            });
+                        }
+                    });
+                    this.game.showNotification(`${ruinedPlayer.name}'s ${card.name} triggers!`);
+                    this.game.updatePlayerStats(ruinedPlayer);
+                });
+            }
+
+            /**
+             * Trigger when any card is ruined - check all players (Mausoleum of Halicarnassus)
+             */
+            triggerAnyCardRuined(ruinedPlayer, ruinedCardIndex, gameState) {
+                gameState.players.forEach(reactingPlayer => {
+                    if (!reactingPlayer) return;
+                    reactingPlayer.tableau.forEach((card, cardIndex) => {
+                        if (!card || reactingPlayer.ruinedCards.has(cardIndex)) return;
+                        if (!card.effect || !card.effect.includes('trigger:anyCardRuined')) return;
+
+                        const effects = this.parseEffectString(card.effect);
+                        effects.filter(e => e.trigger === 'anyCardRuined').forEach(effect => {
+                            if (effect.effects) {
+                                effect.effects.forEach(triggerEffect => {
+                                    this.executeEffect(reactingPlayer, triggerEffect, cardIndex, gameState);
+                                });
+                            }
+                        });
+                        this.game.showNotification(`${reactingPlayer.name}'s ${card.name} triggers!`);
+                        this.game.updatePlayerStats(reactingPlayer);
+                    });
+                });
+            }
+
+            /**
+             * Trigger when player wins conquest or war (Spoils of War)
+             */
+            triggerWinConquestOrWar(winner, gameState) {
+                winner.tableau.forEach((card, cardIndex) => {
+                    if (!card || winner.ruinedCards.has(cardIndex)) return;
+                    if (!card.effect || !card.effect.includes('trigger:winConquestOrWar')) return;
+
+                    const effects = this.parseEffectString(card.effect);
+                    effects.filter(e => e.trigger === 'winConquestOrWar').forEach(effect => {
+                        if (effect.effects) {
+                            effect.effects.forEach(triggerEffect => {
+                                this.executeEffect(winner, triggerEffect, cardIndex, gameState);
+                            });
+                        }
+                    });
+                    this.game.showNotification(`${winner.name}'s ${card.name} triggers!`);
+                    this.game.updatePlayerStats(winner);
+                });
+            }
+
+            /**
+             * Trigger when player wins or loses a war (Great Lament)
+             * @param {Object} player - The attacker (if won) or defender (if lost)
+             * @param {boolean} won - true if player won the war
+             */
+            triggerWarResult(player, won, gameState) {
+                player.tableau.forEach((card, cardIndex) => {
+                    if (!card || player.ruinedCards.has(cardIndex)) return;
+                    if (!card.effect || !card.effect.includes('trigger:warResult')) return;
+
+                    const effects = this.parseEffectString(card.effect);
+                    effects.filter(e => e.trigger === 'warResult').forEach(effect => {
+                        if (effect.effects) {
+                            effect.effects.forEach(triggerEffect => {
+                                if (won && triggerEffect.type === 'winAddCulture') {
+                                    this.executeEffect(player, triggerEffect, cardIndex, gameState);
+                                } else if (!won && triggerEffect.type === 'loseAddCulture') {
+                                    this.executeEffect(player, triggerEffect, cardIndex, gameState);
+                                }
+                            });
+                        }
+                    });
+                    this.game.updatePlayerStats(player);
+                });
+            }
+
+            /**
+             * Trigger when any player uses resources to reduce card cost (Customs House)
+             */
+            triggerAnyResourceUsed(usingPlayer, gameState) {
+                gameState.players.forEach(owner => {
+                    if (!owner) return;
+                    owner.tableau.forEach((card, cardIndex) => {
+                        if (!card || owner.ruinedCards.has(cardIndex)) return;
+                        if (!card.effect || !card.effect.includes('trigger:anyResourceUsed')) return;
+
+                        const effects = this.parseEffectString(card.effect);
+                        effects.filter(e => e.trigger === 'anyResourceUsed').forEach(effect => {
+                            if (effect.effects) {
+                                effect.effects.forEach(triggerEffect => {
+                                    this.executeEffect(owner, triggerEffect, cardIndex, gameState);
+                                });
+                            }
+                        });
+                        this.game.showNotification(`${owner.name}'s ${card.name} gains gold from trade!`);
+                        this.game.updatePlayerStats(owner);
+                    });
+                });
+            }
+
+            /**
+             * Trigger at end of war phase - peace bonus for players who didn't participate (Pax Romana)
+             * @param {Set} playersInWar - Set of player indices who participated in war (attacker or defender)
+             */
+            triggerWarPhasePeaceBonus(gameState, playersInWar) {
+                gameState.players.forEach((player, index) => {
+                    if (!player || playersInWar.has(index)) return;
+                    player.tableau.forEach((card, cardIndex) => {
+                        if (!card || player.ruinedCards.has(cardIndex)) return;
+                        if (!card.effect || !card.effect.includes('trigger:warPhase')) return;
+
+                        const effects = this.parseEffectString(card.effect);
+                        effects.filter(e => e.trigger === 'warPhase').forEach(effect => {
+                            if (effect.effects) {
+                                effect.effects.forEach(triggerEffect => {
+                                    if (triggerEffect.type === 'peaceBonus') {
+                                        this.executeEffect(player, triggerEffect, cardIndex, gameState);
+                                    }
+                                });
+                            }
+                        });
+                        this.game.showNotification(`${player.name}'s ${card.name} gains peace bonus!`);
+                        this.game.updatePlayerStats(player);
+                    });
                 });
             }
         }
@@ -5149,7 +6429,9 @@
                 console.log(`showModal called with title: "${title}"`);
                 
                 // Pause any active timers while modal is open
-                this.timerManager.clearAllTimers();
+                if (this.game && this.game.timerManager) {
+                    this.game.timerManager.clearAllTimers();
+                }
                 
                 const modal = document.getElementById('gameModal');
                 const modalTitle = document.getElementById('modalTitle');
