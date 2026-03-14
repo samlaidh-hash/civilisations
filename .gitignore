@@ -16,3 +16,7 @@ desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+
+# Node / Playwright
+node_modules/
+test-results/

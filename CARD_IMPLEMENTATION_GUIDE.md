@@ -2,7 +2,7 @@
 
 ## Overview
 
-The game "Civilisations of the Middle Seas" now has all 114 cards from the PDF (`20210608_CIVILISATIONS_FINAl_X-1a - Copy.pdf`) added to the card database (38 per age). However, many cards have **placeholder effects** — their base stats (cost, type, culture, military, resources) are correct, but their special abilities need actual game logic implemented in the EffectEngine.
+The game "Civilisations of the Middle Seas" has all 114 base game cards plus 45 expansion cards fully implemented. **All effects and triggers are implemented** — base stats (cost, type, culture, military, resources) and special abilities have complete game logic in the EffectEngine.
 
 **File to edit**: `CIV 5.html` (single-file game, ~6600 lines)
 
@@ -30,55 +30,9 @@ The game "Civilisations of the Middle Seas" now has all 114 cards from the PDF (
 
 ---
 
-## BUG: Condition Checking is Broken (Fix First!)
+## Condition System (FIXED — Complete)
 
-The condition system parses correctly but is **never actually checked** due to a property name mismatch:
-
-**In `manuallyActivateCard()` (~line 4447):**
-```javascript
-// BUG: checks effect.condition (singular) but conditions are stored as effect.conditions (plural)
-if (effect.condition && !this.checkCondition(player, effect.condition, gameState)) {
-```
-
-**Fix:** Change `effect.condition` to `effect.conditions`:
-```javascript
-if (effect.conditions && !this.checkCondition(player, effect.conditions, gameState)) {
-```
-
-Additionally, `checkCondition()` re-parses `cond.value` to extract the condition type, but the type is already in `cond.type`. The function at ~line 4750 does:
-```javascript
-const [condType, ...params] = cond.value.split(':');
-```
-
-But since `cond` is `{type: "hasType", value: "i"}`, `condType` becomes `"i"` instead of `"hasType"`. 
-
-**Fix:** Change to use `cond.type`:
-```javascript
-checkCondition(player, conditions, gameState) {
-    if (!conditions) return true;
-    for (let cond of conditions) {
-        switch (cond.type) {
-            case 'hasType':
-                if (!this.hasCardType(player, cond.value)) return false;
-                break;
-            case 'countType': {
-                const [cardType, required] = cond.value.split(':');
-                if (this.countCardType(player, cardType) < parseInt(required)) return false;
-                break;
-            }
-            case 'opponentLacksType':
-                if (this.anyOpponentHasType(player, cond.value, gameState)) return false;
-                break;
-            default:
-                console.warn(`Unknown condition: ${cond.type}`);
-                return false;
-        }
-    }
-    return true;
-}
-```
-
-**WARNING**: Fixing this will mean conditions are actually enforced. Test to make sure abilities still activate when conditions are met.
+The condition system uses `effect.conditions` and `checkCondition()` correctly. Conditions `hasType`, `countType`, and `opponentLacksType` are enforced before manual abilities activate. Unknown conditions log only when `window.DEBUG_CIV_GAME` is set.
 
 ---
 
@@ -153,92 +107,24 @@ These work correctly in `executeEffect()`:
 | `otherPlayerPlaysType:T` | When OPPONENT plays type T | `triggerReactiveEffects()` |
 | `anyPlayerPlaysType:T` | When ANY player plays type T | `triggerReactiveEffects()` |
 | `warDeclared` | When you are attacked in war | `triggerWarDeclaredEffects()` |
+| `warResult` | After each war (won/lost) | `triggerWarResult()` |
+| `anyResourceUsed` | When any player uses resources for cost | `triggerAnyResourceUsed()` |
+| `ownCardRuined` | When your card is ruined | `triggerOwnCardRuined()` |
+| `anyCardRuined` | When any card is ruined | `triggerAnyCardRuined()` |
+| `winConquestOrWar` | When you win conquest or war | `triggerWinConquestOrWar()` |
+| `warPhase` | End of war phase (peace bonus) | `triggerWarPhasePeaceBonus()` |
 
 ---
 
-## PLACEHOLDER Effects (Need Real Implementation)
+## All Effects and Triggers — Implementation Complete ✅
 
-These effects currently just show a notification but do nothing:
+All previously listed placeholder effects and unimplemented triggers are now fully implemented:
 
-### 1. `controlRandom` — The Graeae (Age II)
-**Card**: "When a random choice is called for by a card you may instead choose the result, then TAP"
-**Implementation**: Set a flag `player.controlRandom = true`. When any random effect runs (like `ruinRandomOpponentCard`), if this flag is set, let the player choose the target instead of randomizing. Clear the flag after use.
+**Effect types**: `controlRandom`, `wildType`, `swapWithOpponent`, `replaceFromDiscard`, `stealOpponentCard`, `swapCultureMilitary`, `swapMilitaryWithOpponent`, `sacrificeAndBoostType`, `sacrificeAndBoostTypeCulture`, `doubleAdjacentCard`, `addCultureFromAgeGold`, `peaceBonus`, `winAddCulture`, `loseAddCulture`
 
-### 2. `wildType` — The Oracle at Delphi (Age II)
-**Card**: "This card can be counted as a card of any type once, then TAP"
-**Implementation**: When activated, prompt for or auto-select the most beneficial type. Temporarily add that type to the player's type counts for condition checks. Works with `hasType` and `countType` conditions.
+**Triggers**: `trigger:warResult` (Great Lament), `trigger:anyResourceUsed` (Customs House), `trigger:ownCardRuined`, `trigger:anyCardRuined`, `trigger:winConquestOrWar`, `trigger:warPhase` (Pax Romana peace bonus)
 
-### 3. `swapWithOpponent` — Bad Deal (Age II), Spy (Age II)
-**Card (Bad Deal)**: "Swap this card with another player's random Trade or Economic card, then TAP"
-**Card (Spy)**: "Swap this card with a random card of another player, then TAP"
-**Implementation**: Find a valid opponent card, remove it from their tableau, place it in yours, move this card to their tableau. Update both players' stats. Bad Deal targets specific types (t,e); Spy targets any card.
-
-### 4. `replaceFromDiscard` — Crassus (Age II), Spurinna the Haruspex (Age III)
-**Card**: "Look at the discarded hand for this Age and replace this card with a card of your choice"
-**Implementation**: Access the discarded hand (cards not drafted this age). Show a selection UI or auto-pick the best card. Replace this card in the tableau. Treat the new card as just played (activate its effects).
-
-### 5. `stealOpponentCard` — Mithridates (Age I)
-**Card**: "If you win a War you may choose a card from any opponent's Ages, then TAP"
-**Implementation**: After winning a war, let the player (or AI) pick an opponent card. Move it to their tableau. This requires integration with the war phase results.
-
-### 6. `swapCultureMilitary` — Seneca the Younger (Age III)
-**Card**: "Switch the culture and military tokens on your card with the most culture, then TAP"
-**Implementation**: Find the player's card with the highest `bonusCulture`. Swap its `bonusCulture` and `bonusMilitary` values. Call `updatePlayerStats()`.
-
-### 7. `swapMilitaryWithOpponent` — Menippean Satire (Age III)
-**Card**: "Swap this card's military with military from a random other player's card with military, then TAP"
-**Implementation**: Find a random opponent card that has military (base + bonus > 0). Swap the `bonusMilitary` values between this card and the opponent's card. Update both players.
-
-### 8. `sacrificeAndBoostType` — Temple of Ares (Age III)
-**Card**: "RUIN one of your cards of your choice to add 2 military to each other of your cards of the same Type, then TAP"
-**Implementation**: Auto-select (or prompt) a card to sacrifice. RUIN it. Find all other cards of the same type. Add 2 `bonusMilitary` to each. For AI: sacrifice the card with lowest value.
-
-### 9. `sacrificeAndBoostTypeCulture` — Theatre of Dionysus (Age III)
-**Card**: Same as above but adds culture instead of military.
-**Implementation**: Same as `sacrificeAndBoostType` but add to `bonusCulture`.
-
-### 10. `doubleAdjacentCard` — Divine Blessing (Age II)
-**Card**: "Double the culture and military tokens on the card to the right of this card, then TAP"
-**Implementation**: Find this card's index in the tableau. Get the card at index+1 (or wrap to next round). Double its `bonusCulture` and `bonusMilitary`.
-
-### 11. `addCultureFromAgeGold` — Temple of Mercury (Age III)
-**Card**: "Add 1 culture per gold gained at start of current Age (not from starting value), then TAP"
-**Implementation**: Track gold gained from card effects during age start (`goldPerAge`, `goldOnThirdAge`, `gambling`). Store this as `player.ageStartGoldFromCards`. Add that count as `bonusCulture` to this card.
-
-### 12. `peaceBonus` — Pax Romana (Age I)
-**Card**: "If you do not engage in a War during a War phase, add 2 culture to this card"
-**Implementation**: After the war phase, check if this player was NOT involved in any war (neither attacking nor defending). If peaceful, add 2 to this card's `bonusCulture`. This needs a hook in `handleWarPhase()`.
-
----
-
-## UNIMPLEMENTED Triggers (Need New Trigger Handlers)
-
-These trigger types appear in card effect strings but have no handler code:
-
-### 1. `trigger:warResult` — Great Lament (Age I)
-**Effect string**: `"trigger:warResult,effect:winAddCulture:1,loseAddCulture:2"`
-**Needs**: A new trigger handler in `handleWarPhase()` that fires after each war. If the player won, add culture; if they lost, add more culture.
-**New effect types needed**: `winAddCulture:X`, `loseAddCulture:X`
-
-### 2. `trigger:anyResourceUsed` — Customs House (Age I)
-**Effect string**: `"culture:1,trigger:anyResourceUsed,effect:gainGold:1"`
-**Needs**: A hook in `calculateCardCost()` or during the reveal/payment phase. When ANY player uses resources to reduce a card's cost, trigger this effect for the Customs House owner.
-
-### 3. `trigger:ownCardRuined` — The Black Legion (Age I)
-**Effect string**: `"military:3,culture:1,trigger:ownCardRuined,effect:addMilitary:2"`
-**Needs**: A hook wherever cards are ruined (war phase, opponent effects). When one of this player's cards is ruined, add 2 military to The Black Legion.
-
-### 4. `trigger:anyCardRuined` — Mausoleum of Halicarnassus (Age I)
-**Effect string**: `"culture:2,trigger:anyCardRuined,effect:addCulture:2"`
-**Needs**: Same hook location as above, but triggers when ANY card (any player's) is ruined.
-
-### 5. `trigger:winConquestOrWar` — Spoils of War (Age I)
-**Effect string**: `"trigger:winConquestOrWar,effect:gainGold:4"`
-**Needs**: Hooks in both `handleConquestPhase()` and `handleWarPhase()`. When this player wins a conquest or war, gain 4 gold.
-
-### 6. `trigger:warPhase` — Pax Romana (Age I)
-**Effect string**: `"culture:2,trigger:warPhase,effect:peaceBonus:2"`
-**Needs**: A hook at the end of `handleWarPhase()`. If this player did NOT participate in war, add 2 culture to this card.
+**Masada**: Immune to ruin while tapped — excluded from ruin targets in war phase, ruinRandomOpponentCard, ruinOpponentType, ruinHighCultureOpponentCard.
 
 ---
 

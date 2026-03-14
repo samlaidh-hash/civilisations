@@ -1,0 +1,14 @@
+{
+  "name": "civilisations-middle-seas",
+  "version": "1.0.0",
+  "description": "Civilisations of the Middle Seas - browser card game",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:stress": "playwright test --repeat-each=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}

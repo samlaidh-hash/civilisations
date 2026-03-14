@@ -1230,8 +1230,10 @@
                         <div>
                             <label style="display: block; margin-bottom: 5px; color: #ffd700;">AI Thinking Time (seconds)</label>
                             <select id="aiThinkingTime" class="civilization-select">
-                                <option value="3">Fast (3s)</option>
-                                <option value="5" selected>Normal (5s)</option>
+                                <option value="0.2" selected>Instant (0.2s)</option>
+                                <option value="0.5">Very Fast (0.5s)</option>
+                                <option value="1">Fast (1s)</option>
+                                <option value="3">Normal (3s)</option>
                                 <option value="8">Slow (8s)</option>
                                 <option value="15">Very Slow (15s)</option>
                             </select>
@@ -1795,6 +1797,7 @@
              */
             considerManualActivations(aiPlayer) {
                 if (!aiPlayer || aiPlayer.type === 'human') return;
+                if (!aiPlayer.tableau || !Array.isArray(aiPlayer.tableau)) return;
 
                 // Find cards with manual abilities that aren't tapped
                 const activatableCards = [];
@@ -1879,12 +1882,25 @@
                 if (effect.includes('ruinRandomOpponentCard')) {
                     // Check conditions first
                     if (effect.includes('condition')) {
-                        const hasEnoughRanged = player.tableau.filter((c, i) =>
+                        const hasEnoughRanged = (player.tableau || []).filter((c, i) =>
                             c && c.type === 'r' && !player.ruinedCards.has(i)
                         ).length >= 2;
                         if (!hasEnoughRanged) return false;
                     }
                     return true; // Otherwise, ruin is good
+                }
+
+                // stealOpponentCard: only if won war this phase
+                if (effect.includes('stealOpponentCard')) {
+                    return !!player.wonWarThisPhase;
+                }
+
+                // Complex effects: doubleAdjacentCard, sacrificeAndBoostType, replaceFromDiscard - use when beneficial
+                if (effect.includes('doubleAdjacentCard') || effect.includes('addCultureToTypes')) {
+                    return this.game.state.currentAge >= 2; // Prefer in later ages
+                }
+                if (effect.includes('replaceFromDiscard')) {
+                    return (player.tableau || []).some((c, i) => c && !player.ruinedCards.has(i));
                 }
 
                 // Default: 50% chance for unknown abilities
@@ -2802,9 +2818,9 @@
                         return;
                     }
                     
-                    // Much shorter delay for immediate testing
-                    const thinkingTime = 1000 + (Math.random() * 2000); // 1-3 seconds
-                    
+                    // Use settings: AI thinks as fast as configured (Instant=200ms default for quick games)
+                    const settingSeconds = this.state.settings?.aiThinkingTime ?? 0.2;
+                    const thinkingTime = Math.max(150, Math.min(30000, settingSeconds * 1000)); // 150ms-30s cap
                     console.log(`AI ${aiPlayer.name} will think for ${thinkingTime}ms`);
                     
                     setTimeout(() => {
@@ -3272,6 +3288,9 @@
                     <br>
                 `;
 
+                // Auto-activate Mithridates for war winners (no manual click needed)
+                this.effectEngine.triggerAutoMithridatesForWarWinners(this.state);
+
                 // Peace bonus for players who didn't participate in war (Pax Romana)
                 this.effectEngine.triggerWarPhasePeaceBonus(this.state, playersInWar);
                 // Clear war-won flags for next phase
@@ -3412,6 +3431,7 @@
                 
                 // Process end-game bonuses (Ziggurat of Ur, Expeditionary Fleet, etc.)
                 this.state.players.forEach(player => {
+                    if (!player || !player.tableau) return;
                     player.tableau.forEach((card, index) => {
                         if (!card || player.ruinedCards.has(index)) return;
                         if (card.effect && card.effect.includes('endGameBonus:')) {
@@ -3441,7 +3461,8 @@
                 
                 // Convert gold to culture
                 this.state.players.forEach(player => {
-                    const goldCulture = Math.floor(player.gold / 3);
+                    if (!player) return;
+                    const goldCulture = Math.floor((player.gold || 0) / 3);
                     player.totalCulture += goldCulture;
                     
                     if (goldCulture > 0) {
@@ -3455,12 +3476,13 @@
                 let finalScores = [];
                 
                 this.state.players.forEach((player, index) => {
+                    if (!player) return;
                     finalScores.push({
                         name: player.name,
                         culture: player.totalCulture,
                         military: player.totalMilitary,
                         gold: player.gold,
-                        civilization: player.civilization.name,
+                        civilization: (player.civilization && player.civilization.name) || 'Unknown',
                         index: index
                     });
                     
@@ -3474,7 +3496,7 @@
                 
                 finalScores.sort((a, b) => b.culture - a.culture);
                 
-                const winnerNames = winners.map(i => this.state.players[i].name);
+                const winnerNames = winners.map(i => this.state.players[i]?.name ?? 'Unknown').filter(Boolean);
                 
                 let modalContent = `
                     <div style="text-align: left; line-height: 1.8;">
@@ -5295,7 +5317,12 @@
                         const stealIdx = stealTargets[Math.floor(Math.random() * stealTargets.length)];
                         const stolenCard = target.tableau[stealIdx];
                         target.tableau[stealIdx] = null;
-                        player.tableau.push(stolenCard);
+                        const emptySlot = player.tableau.findIndex(c => !c);
+                        if (emptySlot >= 0) {
+                            player.tableau[emptySlot] = stolenCard;
+                        } else {
+                            player.tableau.push(stolenCard); // Fallback if tableau full (edge case)
+                        }
                         this.game.updatePlayerStats(player);
                         this.game.updatePlayerStats(target);
                         this.game.showNotification(`${player.name} steals ${stolenCard.name} from ${target.name}!`);
@@ -5321,7 +5348,9 @@
                     }
 
                     default:
-                        console.warn(`Unknown effect type: ${type}`);
+                        if (typeof window !== 'undefined' && window.DEBUG_CIV_GAME) {
+                            console.warn(`Unknown effect type: ${type}`);
+                        }
                         return false;
                 }
             }
@@ -5353,7 +5382,9 @@
                             break;
 
                         default:
-                            console.warn(`Unknown condition: ${condType}`);
+                            if (typeof window !== 'undefined' && window.DEBUG_CIV_GAME) {
+                                console.warn(`Unknown condition: ${condType}`);
+                            }
                             return false;
                     }
                 }
@@ -5817,6 +5848,23 @@
                         });
                         this.game.showNotification(`${owner.name}'s ${card.name} gains gold from trade!`);
                         this.game.updatePlayerStats(owner);
+                    });
+                });
+            }
+
+            /**
+             * Auto-activate Mithridates for war winners (steal opponent card is automatic - no manual click needed)
+             */
+            triggerAutoMithridatesForWarWinners(gameState) {
+                gameState.players.forEach((player) => {
+                    if (!player || !player.wonWarThisPhase) return;
+                    player.tableau.forEach((card, cardIndex) => {
+                        if (!card || player.ruinedCards.has(cardIndex)) return;
+                        if (player.tappedCards.has(cardIndex)) return;
+                        if (!card.effect || !card.effect.includes('stealOpponentCard')) return;
+                        this.manuallyActivateCard(player, cardIndex, gameState);
+                        this.game.updatePlayerStats(player);
+                        this.game.showNotification(`⚡ ${player.name}'s ${card.name} activates automatically (war victor)!`);
                     });
                 });
             }
@@ -6810,6 +6858,12 @@
                 return;
             }
 
+            // The Oracle at Delphi (wildType): human gets modal to choose type
+            if (player.type === 'human' && card.effect && card.effect.includes('wildType')) {
+                showOracleChoiceModal(playerIndex, cardIndex);
+                return;
+            }
+
             console.log(`Attempting to activate ${card.name} for ${player.name}`);
             
             // Log manual activation
@@ -6829,6 +6883,51 @@
             } else {
                 game.showNotification(`❌ Cannot activate ${card.name} - check conditions!`);
             }
+        }
+
+        /**
+         * Show modal for The Oracle at Delphi - choose which type this card counts as
+         */
+        function showOracleChoiceModal(playerIndex, cardIndex) {
+            const typeLabels = {
+                'a': 'Concept', 'c': 'Civic', 'e': 'Economic', 'f': 'Fortified', 'h': 'Holy',
+                'i': 'Infantry', 'm': 'Mounted', 'n': 'Naval', 'p': 'Person', 'r': 'Ranged',
+                't': 'Trade', 'u': 'Underworld', 'w': 'Wonder'
+            };
+            const types = Object.keys(typeLabels);
+            const buttonsHtml = types.map(t => 
+                `<button class="btn" onclick="completeOracleChoice(${playerIndex}, ${cardIndex}, '${t}'); hideModal();" style="margin: 4px;">${typeLabels[t]}</button>`
+            ).join('');
+            const content = `
+                <div style="text-align: center; padding: 20px;">
+                    <h3 style="color: #ffd700; margin-bottom: 15px;">🔮 The Oracle at Delphi</h3>
+                    <p style="margin-bottom: 20px;">Choose which type this card will count as (once):</p>
+                    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
+                        ${buttonsHtml}
+                    </div>
+                    <p style="margin-top: 20px; font-size: 0.9em; opacity: 0.8;">This card will count as your chosen type for the next condition check (e.g. hasType, countType), then tap.</p>
+                    <p style="margin-top: 12px;"><button class="btn" onclick="hideModal()" style="opacity: 0.7;">Cancel</button></p>
+                </div>
+            `;
+            game.showModal('🔮 Choose Card Type', content);
+        }
+
+        /**
+         * Complete The Oracle at Delphi activation after user chooses type
+         */
+        function completeOracleChoice(playerIndex, cardIndex, chosenType) {
+            if (!game) return;
+            const player = game.state.players[playerIndex];
+            if (!player || !player.tableau[cardIndex]) return;
+            const card = player.tableau[cardIndex];
+            player.wildTypeActive = { cardIndex, type: chosenType };
+            // Card taps when consumed by a hasType/countType check, not immediately
+            game.updatePlayerStats(player);
+            game.updateDisplay();
+            const typeLabels = { 'a':'Concept','c':'Civic','e':'Economic','f':'Fortified','h':'Holy','i':'Infantry','m':'Mounted','n':'Naval','p':'Person','r':'Ranged','t':'Trade','u':'Underworld','w':'Wonder' };
+            game.showNotification(`✨ ${player.name}'s ${card.name} will count as ${typeLabels[chosenType] || chosenType}!`);
+            game.logAction('manual_ability', `⚡ ${player.name} activated ${card.name} (chose ${typeLabels[chosenType]})`, { player: player.name, card: card.name });
+            game.uiManager.addToEffectsLog(playerIndex, `⚡ ${card.name} counts as ${typeLabels[chosenType]}`);
         }
 
         function nextPhase() {
