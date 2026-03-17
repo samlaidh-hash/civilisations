@@ -1,5 +1,11 @@
 # Civilisations of the Middle Seas
 
+<p align="center">
+  <strong><a href="https://htmlpreview.github.io/?https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/CIV%205.html">🎮 LAUNCH GAME</a></strong> — Play instantly in your browser
+</p>
+
+---
+
 A strategic civilization-building card game where 2-12 players compete to build the most cultured civilization across three historic ages.
 
 ## Overview
@@ -139,4 +145,4 @@ This is a fan-made educational project. Not for commercial use.
 
 ---
 
-**Ready to build your civilization? Open CIV 5.html and begin your journey through the ages!**
+**Ready to build your civilization?** [🎮 **LAUNCH GAME**](https://htmlpreview.github.io/?https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/CIV%205.html) — or [open CIV 5.html](CIV%205.html) locally.
