@@ -6685,7 +6685,8 @@
                 const currentValue = select.value;
                 const options = Object.keys(civilizations).map(key => {
                     const civ = civilizations[key];
-                    return `<option value="${key}">${civ.name} - ${civ.gold}💰 ${civ.culture}🔵 ${civ.military}🔴</option>`;
+                    const gold = civ.startingGold ?? civ.gold ?? 0;
+                    return `<option value="${key}">${civ.name} - ${gold}💰 ${civ.culture ?? 0}🔵 ${civ.military ?? 0}🔴</option>`;
                 }).join('');
                 select.innerHTML = options;
                 
@@ -6753,7 +6754,8 @@
             
             const civilizationOptions = Object.keys(civilizations).map(key => {
                 const civ = civilizations[key];
-                return `<option value="${key}">${civ.name} - ${civ.gold}💰 ${civ.culture}🔵 ${civ.military}🔴</option>`;
+                const gold = civ.startingGold ?? civ.gold ?? 0;
+                return `<option value="${key}">${civ.name} - ${gold}💰 ${civ.culture ?? 0}🔵 ${civ.military ?? 0}🔴</option>`;
             }).join('');
             
             const playerRow = document.createElement('div');
