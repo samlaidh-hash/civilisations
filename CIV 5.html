@@ -455,6 +455,35 @@
             transform-origin: center bottom;
         }
 
+        .card-art-backdrop {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background-size: cover;
+            background-position: center;
+            opacity: 0.28;
+            filter: saturate(1.05) contrast(1.08);
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .card-art-specific {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.32;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .card-header, .card-name, .card-ability, .card-footer {
+            position: relative;
+            z-index: 2;
+        }
+
         .hand .card {
             min-width: clamp(55px, 8vw, 72px);
             flex-shrink: 0;
@@ -6043,6 +6072,11 @@
                 const isCurrentPlayer = playerIndex === this.game.state.activePlayerIndex;
                 const hasPlaced = !!player.placedCard;
                 
+                // Face-down card back depends on the current age
+                const ageBack = this.game.state.currentAge === 1
+                    ? 'assets/back-bronze.png'
+                    : (this.game.state.currentAge === 2 ? 'assets/back-iron.png' : 'assets/back-paper.png');
+                
                 // Show actual cards only if:
                 // - It's a human player
                 // - It's the place phase
@@ -6065,13 +6099,18 @@
                         const hiddenCard = document.createElement('div');
                         hiddenCard.style.cssText = `
                             aspect-ratio: 2.5/3.5;
-                            background: linear-gradient(145deg, #2c1810, #8b4513);
+                            background-image: url('${ageBack}');
+                            background-size: cover;
+                            background-position: center;
+                            background-repeat: no-repeat;
+                            background-color: rgba(0,0,0,0.2);
                             border: 3px solid #8b4513;
                             border-radius: 10px;
                             display: flex;
                             flex-direction: column;
                             align-items: center;
                             justify-content: center;
+                            overflow: hidden;
                             min-height: 120px;
                             min-width: 85px;
                             color: #8b4513;
@@ -6079,10 +6118,7 @@
                             font-weight: bold;
                             position: relative;
                         `;
-                        hiddenCard.innerHTML = `
-                            <div style="font-size: 2em; margin-bottom: 5px;">❓</div>
-                            <div>Hidden</div>
-                        `;
+                        hiddenCard.innerHTML = '';
                         handElement.appendChild(hiddenCard);
                     }
                 }
@@ -6175,13 +6211,18 @@
                     const hiddenCard = document.createElement('div');
                     hiddenCard.style.cssText = `
                         aspect-ratio: 2.5/3.5;
-                        background: linear-gradient(145deg, #2c1810, #8b4513);
+                        background-image: url('${ageBack}');
+                        background-size: cover;
+                        background-position: center;
+                        background-repeat: no-repeat;
+                        background-color: rgba(0,0,0,0.2);
                         border: 3px solid #8b4513;
                         border-radius: 10px;
                         display: flex;
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
+                        overflow: hidden;
                         min-height: 120px;
                         min-width: 85px;
                         color: #8b4513;
@@ -6189,10 +6230,7 @@
                         font-weight: bold;
                         position: relative;
                     `;
-                    hiddenCard.innerHTML = `
-                        <div style="font-size: 2em; margin-bottom: 5px;">❓</div>
-                        <div>Card Placed</div>
-                    `;
+                    hiddenCard.innerHTML = '';
                     handElement.appendChild(hiddenCard);
                 }
                 
@@ -6448,7 +6486,20 @@
                 
                 const processedAbility = this.game.iconMapping.replaceResourceNamesWithIcons(safeCard.ability || '');
                 
+                // Artwork underlay:
+                // - Always show the Masada/cinematic backdrop as a fallback
+                // - If a per-card art file exists at assets/art-<slug>.png, it will overlay automatically
+                const slug = String(safeCard.name || '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                const specificArtPath = `assets/art-${slug}.png`;
+                const cinematicFallbackPath = 'assets/art-masada-cinematic.png';
+                
                 return `
+                    <div class="card-art-backdrop" style="background-image: url('${cinematicFallbackPath}');">
+                        <img class="card-art-specific" src="${specificArtPath}" onerror="this.style.display='none';" alt="">
+                    </div>
                     <div class="card-header">
                         <div class="card-resources">${resourceIcons}</div>
                         <div class="card-cost" title="Cost">${safeCard.cost}</div>
