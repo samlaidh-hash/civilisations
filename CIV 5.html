@@ -645,6 +645,33 @@
             right: -3px;
         }
 
+        .card-cost-modified {
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            background: radial-gradient(circle, #ffd700 0%, #ffed4a 50%, #daa520 100%);
+            border-radius: 50%;
+            padding: 2px 4px;
+            min-width: 28px;
+            height: 18px;
+            justify-content: center;
+            border: 2px solid #8b4513;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .card-cost-struck {
+            text-decoration: line-through;
+            font-size: 0.6em;
+            color: #666;
+        }
+        .card-cost-revised {
+            font-size: 0.7em;
+            font-weight: bold;
+            color: #000;
+        }
+
         .card-resources {
             display: flex;
             flex-wrap: wrap;
@@ -704,7 +731,7 @@
         }
 
         .card-ability {
-            font-size: clamp(0.42em, 1.2vh, 0.6em);
+            font-size: clamp(0.32em, 1.1vh, 0.58em);
             line-height: 1.2;
             flex: 1;
             min-height: 0;
@@ -712,14 +739,14 @@
             overflow-x: hidden;
             text-align: center;
             color: #3a3a3a;
-            padding: 2px;
+            padding: 2px 3px;
             background: rgba(255,255,255,0.1);
             border-radius: 4px;
             margin: 0 1px;
             border: 1px solid rgba(139,69,19,0.2);
             overflow-wrap: break-word;
-            word-break: normal;
-            hyphens: none;
+            word-break: break-word;
+            hyphens: auto;
             display: block;
             -webkit-line-clamp: unset;
             -webkit-box-orient: unset;
@@ -808,11 +835,12 @@
             left: 0;
         }
 
-        /* Manual Activation Button */
+        /* Manual Activation Button - centered at bottom */
         .card-activate-btn {
             position: absolute;
             bottom: 5px;
-            right: 5px;
+            left: 50%;
+            transform: translateX(-50%);
             width: 24px;
             height: 24px;
             border-radius: 50%;
@@ -831,13 +859,13 @@
         }
 
         .card-activate-btn:hover:not(:disabled) {
-            transform: scale(1.2);
+            transform: translateX(-50%) scale(1.2);
             background: linear-gradient(145deg, #ffed4a, #fff);
             box-shadow: 0 4px 12px rgba(255,215,0,0.6);
         }
 
         .card-activate-btn:active:not(:disabled) {
-            transform: scale(1.0);
+            transform: translateX(-50%) scale(1.0);
         }
 
         .card-activate-btn:disabled {
@@ -2679,38 +2707,60 @@
             }
             
             calculateCardCost(player, card) {
+                const b = this.getCardCostBreakdown(player, card);
+                return b.effective;
+            }
+
+            /**
+             * Get cost breakdown for display: base, effective, and which cards modify it.
+             */
+            getCardCostBreakdown(player, card) {
+                const modifiers = [];
                 try {
-                    if (!card || !player) {
-                        console.error('Invalid player or card in calculateCardCost');
-                        return 999;
-                    }
-                    
+                    if (!card || !player) return { base: 999, effective: 999, modifiers };
                     let cost = card.cost || 0;
-                    
+                    const baseCost = cost;
+
                     if (card.resources && Array.isArray(card.resources) && player.resources) {
+                        let resourceMatches = 0;
                         card.resources.forEach(resource => {
                             if (player.resources.has(resource)) {
                                 cost = Math.max(0, cost - 1);
+                                resourceMatches++;
                             }
                         });
+                        if (resourceMatches > 0) modifiers.push(`Matching resources (-${resourceMatches})`);
                     }
-                    
+
                     if (player.costReductions && card.type) {
                         player.costReductions.forEach(reduction => {
                             if (reduction.includes(card.type)) {
                                 cost = Math.max(0, cost - 1);
+                                const src = player.tableau ? player.tableau.find(tc => {
+                                    if (!tc || !tc.effect) return false;
+                                    const m = tc.effect.match(/reduceCostType:([a-z]+)/i);
+                                    return m && m[1].includes(card.type);
+                                }) : null;
+                                modifiers.push(`${src ? src.name : 'Cost reduction'} (-1)`);
                             }
                         });
                     }
-                    
+
                     if (player.enabledFreeCards && player.enabledFreeCards.includes(card.name)) {
                         cost = 0;
+                        const src = player.tableau ? player.tableau.find(tc => tc && tc.effect && tc.effect.includes('enablesFree:' + card.name)) : null;
+                        modifiers.push(`${src ? src.name : 'Free to play'} (free)`);
                     }
-                    
-                    return Math.max(0, cost);
-                } catch (error) {
-                    console.error('Error calculating card cost:', error.message);
-                    return 999;
+
+                    if (player.nextCardFree) {
+                        cost = 0;
+                        const roads = player.tableau ? player.tableau.find(tc => tc && tc.effect && tc.effect.includes('nextCardFree')) : null;
+                        modifiers.push(`${roads ? roads.name : 'Next card free'} (free)`);
+                    }
+
+                    return { base: baseCost, effective: Math.max(0, cost), modifiers };
+                } catch (e) {
+                    return { base: card ? (card.cost || 0) : 999, effective: 999, modifiers };
                 }
             }
 
@@ -3864,7 +3914,7 @@
                     },
                     {
                         name: "Mithridates", cost: 2, type: "p", culture: 1, military: 0, resources: ["a"],
-                        ability: "If you win a War you may choose a card from any of your opponent's Ages, then TAP this card.",
+                        ability: "If you win a War you may choose a card, to be destroyed, from any of your opponents' tableaus, then TAP this card.",
                         effect: "culture:1,trigger:manual,effect:stealOpponentCard,tap"
                     },
                     {
@@ -6430,7 +6480,8 @@
                 }
                 
                 try {
-                    cardDiv.innerHTML = this.getCardHTML(card);
+                    const opts = isInHand && player ? { player, showCostBreakdown: true } : {};
+                    cardDiv.innerHTML = this.getCardHTML(card, opts);
                 } catch (error) {
                     console.error('Error creating card HTML for', card.name, ':', error);
                     cardDiv.innerHTML = `
@@ -6442,7 +6493,7 @@
                 return cardDiv;
             }
             
-            getCardHTML(card) {
+            getCardHTML(card, opts = {}) {
                 // Handle PASSED cards specially
                 if (card.name === "PASSED") {
                     return `
@@ -6478,6 +6529,15 @@
                     return `<div class="resource-icon resource-${r}" title="${iconName}">${iconHtml}</div>`;
                 }).join('');
                 
+                let costHtml = `<div class="card-cost" title="Cost">${safeCard.cost}</div>`;
+                if (opts.showCostBreakdown && opts.player) {
+                    const b = this.game.getCardCostBreakdown(opts.player, safeCard);
+                    if (b.modifiers.length > 0 && b.effective !== b.base) {
+                        const tooltip = b.modifiers.join('\\n');
+                        costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck">${b.base}</span> <span class="card-cost-revised">${b.effective}</span></div>`;
+                    }
+                }
+                
                 const cultureValue = safeCard.culture > 0 ? `<div class="card-value culture" title="Culture">${safeCard.culture}</div>` : '';
                 const militaryValue = safeCard.military > 0 ? `<div class="card-value military" title="Military">${safeCard.military}</div>` : '';
                 
@@ -6504,7 +6564,7 @@
                     </div>
                     <div class="card-header">
                         <div class="card-resources">${resourceIcons}</div>
-                        <div class="card-cost" title="Cost">${safeCard.cost}</div>
+                        ${costHtml}
                     </div>
                     <div class="card-name">${safeCard.name}</div>
                     <div class="card-ability">${processedAbility}</div>
