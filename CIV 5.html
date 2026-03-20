@@ -6487,14 +6487,16 @@
                 const processedAbility = this.game.iconMapping.replaceResourceNamesWithIcons(safeCard.ability || '');
                 
                 // Artwork underlay:
-                // - Always show the Masada/cinematic backdrop as a fallback
-                // - If a per-card art file exists at assets/art-<slug>.png, it will overlay automatically
+                // - Use absolute URLs when served from web (htmlpreview, etc.) so card art loads correctly
+                // - Relative paths for local file:// or localhost
+                const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                const assetBase = isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/';
                 const slug = String(safeCard.name || '')
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, '-')
                     .replace(/^-+|-+$/g, '');
-                const specificArtPath = `assets/art-${slug}.png`;
-                const cinematicFallbackPath = 'assets/art-masada-cinematic.png';
+                const specificArtPath = assetBase + `assets/art-${slug}.png`;
+                const cinematicFallbackPath = assetBase + 'assets/art-masada-cinematic.png';
                 
                 return `
                     <div class="card-art-backdrop" style="background-image: url('${cinematicFallbackPath}');">
