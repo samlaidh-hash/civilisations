@@ -6556,13 +6556,14 @@
                     "King's Guard": "kings-guard"
                 };
                 const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-                const assetBase = isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/';
+                // Local: assets in parent of sixkingdoms (../assets/). Web/GitHub: use Statically CDN for htmlpreview & Pages.
+                const assetBase = isLocal ? '../assets/' : 'https://cdn.statically.io/gh/samlaidh-hash/civilisations/master/assets/';
                 const slug = artSlugOverrides[safeCard.name] || String(safeCard.name || '')
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, '-')
                     .replace(/^-+|-+$/g, '');
-                const specificArtPath = assetBase + `assets/art-${slug}.png`;
-                const cinematicFallbackPath = assetBase + 'assets/art-masada-cinematic.png';
+                const specificArtPath = assetBase + `art-${slug}.png`;
+                const cinematicFallbackPath = assetBase + 'art-masada-cinematic.png';
                 
                 return `
                     <div class="card-art-backdrop" style="background-image: url('${cinematicFallbackPath}');">
