@@ -6533,7 +6533,7 @@
                 if (opts.showCostBreakdown && opts.player) {
                     const b = this.game.getCardCostBreakdown(opts.player, safeCard);
                     if (b.modifiers.length > 0 && b.effective !== b.base) {
-                        const tooltip = b.modifiers.join('\\n');
+                        const tooltip = b.modifiers.join('\n');
                         costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck">${b.base}</span> <span class="card-cost-revised">${b.effective}</span></div>`;
                     }
                 }
@@ -6549,9 +6549,15 @@
                 // Artwork underlay:
                 // - Use absolute URLs when served from web (htmlpreview, etc.) so card art loads correctly
                 // - Relative paths for local file:// or localhost
+                // - Override map for card names whose computed slug doesn't match the art filename
+                const artSlugOverrides = {
+                    "Ennigaldi-Nanna's Museum": "ennigaldi-nannas-museum",
+                    "Empire's Foundation": "empires-foundation",
+                    "King's Guard": "kings-guard"
+                };
                 const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
                 const assetBase = isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/';
-                const slug = String(safeCard.name || '')
+                const slug = artSlugOverrides[safeCard.name] || String(safeCard.name || '')
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, '-')
                     .replace(/^-+|-+$/g, '');
