@@ -495,10 +495,21 @@
             border-color: #00ff64;
             border-width: 2px;
             outline: 2px solid rgba(0, 255, 100, 0.5);
+            transform: scale(1.15);
+            z-index: 10;
+        }
+
+        .tableau .card.affected-by-hover-opponent {
+            box-shadow: 0 0 12px 3px rgba(255, 80, 80, 0.7);
+            border-color: #ff4444;
+            border-width: 2px;
+            outline: 2px solid rgba(255, 80, 80, 0.5);
+            transform: scale(1.15);
+            z-index: 10;
         }
 
         .card:hover {
-            transform: scale(2.1);
+            transform: scale(4.2);
             transition: transform 0.2s ease 0s, box-shadow 0.2s ease 0s, border-color 0.15s ease 0s;
             z-index: 50000;
             box-shadow: 0 15px 40px rgba(0,0,0,0.6);
@@ -508,7 +519,7 @@
         }
 
         .tableau .card:hover {
-            transform: scale(1.75);
+            transform: scale(3.5);
             transition: transform 0.2s ease 0s, box-shadow 0.2s ease 0s, border-color 0.15s ease 0s;
             z-index: 100;
         }
@@ -718,17 +729,18 @@
         .resource-w { background: linear-gradient(145deg, #8b4513, #654321); color: #fff; }
 
         .card-name {
-            font-weight: bold;
+            font-weight: 900;
             text-align: center;
             margin: 2px 0;
             line-height: 1.15;
             font-size: clamp(0.5em, 1.55vh, 0.78em);
             color: #2c1810;
             padding: 0 24px;
-            text-shadow: 1px 1px 2px rgba(255,255,255,0.5);
-            overflow-wrap: break-word;
-            word-break: break-word;
-            hyphens: auto;
+            text-shadow: 0 0 3px rgba(255,255,255,0.9), 1px 1px 2px rgba(255,255,255,0.7);
+            overflow-wrap: normal;
+            word-break: normal;
+            hyphens: none;
+            white-space: normal;
             min-height: 16px;
             max-height: 26px;
             overflow: hidden;
@@ -738,21 +750,24 @@
 
         .card-ability {
             font-size: clamp(0.32em, 1.1vh, 0.58em);
+            font-weight: 700;
             line-height: 1.2;
             flex: 0 0 auto;
             min-height: 24px;
             max-height: 44px;
             overflow: hidden;
             text-align: center;
-            color: #3a3a3a;
+            color: #2c1810;
             padding: 2px 3px;
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.35);
             border-radius: 4px;
             margin: 0 1px;
             border: 1px solid rgba(139,69,19,0.2);
-            overflow-wrap: break-word;
-            word-break: break-word;
-            hyphens: auto;
+            text-shadow: 0 0 2px rgba(255,255,255,0.8);
+            overflow-wrap: normal;
+            word-break: normal;
+            hyphens: none;
+            white-space: normal;
             display: -webkit-box;
             -webkit-line-clamp: 4;
             -webkit-box-orient: vertical;
@@ -976,7 +991,7 @@
         }
 
         .hand .card:hover {
-            transform: scale(2.2);
+            transform: scale(4.4);
             transition: transform 0.2s ease 0s, box-shadow 0.2s ease 0s, border-color 0.15s ease 0s;
             z-index: 99999;
             box-shadow: 0 20px 60px rgba(0,0,0,0.8);
@@ -6158,8 +6173,8 @@
                     // Show actual cards for current human player
                     player.hand.forEach((card, cardIndex) => {
                         const cardElement = this.createCardElement(card, playerIndex, cardIndex, true);
-                        cardElement.addEventListener('mouseenter', () => this.highlightTableauForHandCard(playerIndex, card));
-                        cardElement.addEventListener('mouseleave', () => this.clearTableauHighlight(playerIndex));
+                        cardElement.addEventListener('mouseenter', () => this.highlightRelatedCards(playerIndex, card));
+                        cardElement.addEventListener('mouseleave', () => this.clearAllHighlights());
                         handElement.appendChild(cardElement);
                     });
                 } else {
@@ -6334,63 +6349,104 @@
                 logContent.scrollTop = logContent.scrollHeight;
             }
             
-            /**
-             * Get tableau indices that would be affected if this hand card were played
-             */
-            getAffectedTableauIndices(playerIndex, card) {
-                const indices = new Set();
-                if (!card || !card.effect || !this.game) return indices;
-                const player = this.game.state.players[playerIndex];
-                if (!player || !player.tableau) return indices;
-                const state = this.game.state;
-                const placementIdx = (state.currentAge - 1) * 6 + (state.currentTurn - 1);
-                
+            getRelatedTypes(card) {
+                const own = new Set();
+                const opponent = new Set();
+                const all = new Set();
+                if (!card || !card.effect) return { own, opponent, all };
                 const ef = card.effect;
-                if (ef.includes('doubleAdjacentCard')) {
-                    const nextIdx = placementIdx + 1;
-                    if (nextIdx < 18) indices.add(nextIdx);
+
+                const extractTypes = (pattern) => {
+                    const m = ef.match(pattern);
+                    return m ? m[1].split(',').filter(t => /^[a-zA-Z]$/.test(t)) : [];
+                };
+
+                extractTypes(/addCultureToTypes:([a-z,]+)/i).forEach(t => own.add(t));
+                extractTypes(/addMilitaryToTypes:([a-z,]+)/i).forEach(t => own.add(t));
+                extractTypes(/addCulturePerType:([a-z,]+)/i).forEach(t => own.add(t));
+                extractTypes(/addMilitaryPerType:([a-z,]+)/i).forEach(t => own.add(t));
+                extractTypes(/gainGoldPerType:([a-z,]+)/i).forEach(t => own.add(t));
+                extractTypes(/condition:hasType:([a-z])/i).forEach(t => own.add(t));
+                extractTypes(/condition:countType:([a-z])/i).forEach(t => own.add(t));
+
+                extractTypes(/ruinOpponentType:([a-z,]+)/i).forEach(t => opponent.add(t));
+                extractTypes(/gainGoldPerOpponentType:([a-z,]+)/i).forEach(t => opponent.add(t));
+
+                extractTypes(/trigger:otherPlayerPlaysType:([a-z,]+)/i).forEach(t => all.add(t));
+                extractTypes(/trigger:anyPlayerPlaysType:([a-z,]+)/i).forEach(t => all.add(t));
+                extractTypes(/trigger:playCardType:([a-z,]+)/i).forEach(t => own.add(t));
+
+                if (ef.includes('sacrificeAndBoostType') || ef.includes('sacrificeAndBoostTypeCulture')) {
+                    own.add(card.type);
                 }
-                if (ef.includes('addCultureToTypes:')) {
-                    const m = ef.match(/addCultureToTypes:([a-z,]+)(?::\d+)?/);
-                    if (m) {
-                        const types = m[1].split(',').filter(Boolean);
-                        player.tableau.forEach((c, i) => {
-                            if (c && types.includes(c.type) && !player.ruinedCards.has(i)) indices.add(i);
-                        });
-                    }
+                if (ef.includes('convertMilitaryToCulture') || ef.includes('swapCultureMilitary')) {
+                    own.add('*');
                 }
-                if (ef.includes('addMilitaryToTypes:')) {
-                    const m = ef.match(/addMilitaryToTypes:([a-z,]+)/);
-                    if (m) {
-                        const types = m[1].split(',');
-                        player.tableau.forEach((c, i) => {
-                            if (c && types.includes(c.type) && !player.ruinedCards.has(i)) indices.add(i);
-                        });
-                    }
+                if (ef.includes('addCulturePerUniqueType')) {
+                    own.add('*');
                 }
-                if (ef.includes('sacrificeAndBoostType')) {
-                    const t = card.type;
-                    player.tableau.forEach((c, i) => {
-                        if (c && c.type === t && i !== placementIdx && !player.ruinedCards.has(i)) indices.add(i);
-                    });
-                }
-                return indices;
+
+                return { own, opponent, all };
             }
-            
-            highlightTableauForHandCard(playerIndex, card) {
-                const indices = this.getAffectedTableauIndices(playerIndex, card);
-                const tableau = document.getElementById(`tableau-${playerIndex}`);
-                if (!tableau) return;
-                tableau.querySelectorAll('[data-tableau-index]').forEach(slot => {
-                    const idx = parseInt(slot.dataset.tableauIndex, 10);
-                    slot.classList.toggle('affected-by-hover', indices.has(idx));
+
+            highlightRelatedCards(ownerPlayerIndex, card) {
+                this.clearAllHighlights();
+                if (!card || !card.effect || !this.game) return;
+                const { own, opponent, all } = this.getRelatedTypes(card);
+                const ef = card.effect;
+                const state = this.game.state;
+                const hasAdjacentEffect = ef.includes('doubleAdjacentCard');
+
+                if (own.size === 0 && opponent.size === 0 && all.size === 0 && !hasAdjacentEffect) return;
+
+                const players = state.players;
+                const matchesTypeSet = (c, typeSet) => {
+                    if (!c) return false;
+                    if (typeSet.has('*')) return true;
+                    return typeSet.has(c.type);
+                };
+
+                players.forEach((player, pIdx) => {
+                    const tableau = document.getElementById(`tableau-${pIdx}`);
+                    if (!tableau) return;
+                    const isOwner = pIdx === ownerPlayerIndex;
+                    tableau.querySelectorAll('[data-tableau-index]').forEach(slot => {
+                        const idx = parseInt(slot.dataset.tableauIndex, 10);
+                        const c = player.tableau[idx];
+                        if (!c || player.ruinedCards.has(idx)) return;
+
+                        let highlight = false;
+                        let isOpponentHighlight = false;
+
+                        if (isOwner && matchesTypeSet(c, own)) {
+                            highlight = true;
+                        }
+                        if (!isOwner && matchesTypeSet(c, opponent)) {
+                            highlight = true;
+                            isOpponentHighlight = true;
+                        }
+                        if (matchesTypeSet(c, all)) {
+                            highlight = true;
+                            if (!isOwner) isOpponentHighlight = true;
+                        }
+                        if (isOwner && hasAdjacentEffect) {
+                            const placementIdx = (state.currentAge - 1) * 6 + (state.currentTurn - 1);
+                            if (idx === placementIdx + 1 || idx === placementIdx - 1) {
+                                highlight = true;
+                            }
+                        }
+
+                        if (highlight) {
+                            slot.classList.add(isOpponentHighlight ? 'affected-by-hover-opponent' : 'affected-by-hover');
+                        }
+                    });
                 });
             }
-            
-            clearTableauHighlight(playerIndex) {
-                const tableau = document.getElementById(`tableau-${playerIndex}`);
-                if (!tableau) return;
-                tableau.querySelectorAll('.affected-by-hover').forEach(el => el.classList.remove('affected-by-hover'));
+
+            clearAllHighlights() {
+                document.querySelectorAll('.affected-by-hover, .affected-by-hover-opponent').forEach(el => {
+                    el.classList.remove('affected-by-hover', 'affected-by-hover-opponent');
+                });
             }
             
             updatePlayerTableau(player, playerIndex) {
@@ -6432,6 +6488,9 @@
 
                             slot.innerHTML = this.getCardHTML(card);
                             requestAnimationFrame(() => requestAnimationFrame(() => this.applyTextFit(slot)));
+
+                            slot.addEventListener('mouseenter', () => this.highlightRelatedCards(playerIndex, card));
+                            slot.addEventListener('mouseleave', () => this.clearAllHighlights());
 
                             // Add activation button for cards with manual triggers
                             if (card.effect && card.effect.includes('trigger:manual')) {
