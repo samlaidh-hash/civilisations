@@ -723,7 +723,7 @@
             line-height: 1.15;
             font-size: clamp(0.52em, 1.6vh, 0.82em);
             color: #2c1810;
-            padding: 0 2px;
+            padding: 0 22px 0 2px;
             text-shadow: 1px 1px 2px rgba(255,255,255,0.5);
             overflow-wrap: break-word;
             word-break: normal;
@@ -1760,6 +1760,7 @@
         // Icon Mapping System
         class IconMapping {
             constructor() {
+                this.iconBaseUrl = ''; // Set on init for web (CDN base for SVGs at repo root)
                 this.resourceIcons = {
                     'a': { name: 'Animals', image: 'Animals.svg', fallback: 'A' },
                     'f': { name: 'Food', image: 'Food.svg', fallback: 'F' },
@@ -1802,12 +1803,20 @@
                 };
             }
 
+            setIconBaseUrl(url) { this.iconBaseUrl = url || ''; }
+
+            _iconSrc(filename) {
+                if (!filename) return '';
+                return this.iconBaseUrl ? this.iconBaseUrl + filename : filename;
+            }
+
             getResourceIcon(resourceType) {
                 const icon = this.resourceIcons[resourceType];
                 if (!icon) return '';
 
                 if (icon.image) {
-                    return `<img src="${icon.image}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
+                    const src = this._iconSrc(icon.image);
+                    return `<img src="${src}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
                 }
                 return icon.fallback;
             }
@@ -1819,7 +1828,8 @@
                 const fallbackClass = `resource-${resourceType}`;
 
                 if (icon.image) {
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${icon.image}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'" style="width: 100%; height: 100%; object-fit: cover;"></span>`;
+                    const src = this._iconSrc(icon.image);
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'" style="width: 100%; height: 100%; object-fit: cover;"></span>`;
                 }
                 return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
@@ -1829,7 +1839,8 @@
                 if (!icon) return '';
 
                 if (icon.image) {
-                    return `<img src="${icon.image}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
+                    const src = this._iconSrc(icon.image);
+                    return `<img src="${src}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
                 }
                 return icon.fallback;
             }
@@ -1839,7 +1850,8 @@
                 if (!icon) return civilizationKey.charAt(0).toUpperCase();
 
                 if (icon.image) {
-                    return `<img src="${icon.image}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
+                    const src = this._iconSrc(icon.image);
+                    return `<img src="${src}" alt="${icon.name}" title="${icon.name}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='${icon.fallback}'">`;
                 }
                 return icon.fallback;
             }
@@ -2331,6 +2343,8 @@
                 this.effectEngine = new EffectEngine(this);
                 this.uiManager = new UIManager(this);
                 this.iconMapping = new IconMapping();
+                const isLocal = typeof location !== 'undefined' && (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+                this.iconMapping.setIconBaseUrl(isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/');
                 this.aiManager = new AIManager(this);
                 this.timerManager = new TimerManager(this);
                 
@@ -6556,8 +6570,8 @@
                     "King's Guard": "kings-guard"
                 };
                 const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-                // Local: assets in parent of sixkingdoms (../assets/). Web/GitHub: use Statically CDN for htmlpreview & Pages.
-                const assetBase = isLocal ? '../assets/' : 'https://cdn.statically.io/gh/samlaidh-hash/civilisations/master/assets/';
+                // Local: assets in parent of sixkingdoms (../assets/). Web/GitHub: use raw GitHub for htmlpreview.
+                const assetBase = isLocal ? '../assets/' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/assets/';
                 const slug = artSlugOverrides[safeCard.name] || String(safeCard.name || '')
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, '-')
