@@ -724,21 +724,24 @@
             line-height: 1.15;
             font-size: clamp(0.5em, 1.55vh, 0.78em);
             color: #2c1810;
-            padding: 0 22px;
+            padding: 0 24px;
             text-shadow: 1px 1px 2px rgba(255,255,255,0.5);
             overflow-wrap: break-word;
             word-break: normal;
             hyphens: none;
+            height: clamp(16px, 18%, 24px);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .card-ability {
             font-size: clamp(0.32em, 1.1vh, 0.58em);
             line-height: 1.2;
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            overflow-x: hidden;
-            scrollbar-width: none;
+            flex: 0 0 auto;
+            height: clamp(24px, 42%, 44px);
+            overflow: hidden;
             text-align: center;
             color: #3a3a3a;
             padding: 2px 3px;
@@ -752,11 +755,6 @@
             display: block;
             -webkit-line-clamp: unset;
             -webkit-box-orient: unset;
-        }
-
-        .card-ability::-webkit-scrollbar {
-            width: 0;
-            height: 0;
         }
 
         .card-ability .inline-resource-icon {
@@ -6433,6 +6431,7 @@
                             }
 
                             slot.innerHTML = this.getCardHTML(card);
+                            this.applyTextFit(slot);
 
                             // Add activation button for cards with manual triggers
                             if (card.effect && card.effect.includes('trigger:manual')) {
@@ -6481,6 +6480,7 @@
                         console.error('Error creating PASSED card HTML:', error);
                         cardDiv.innerHTML = '<div class="card-name">PASSED</div><div class="card-ability">No cards available</div>';
                     }
+                    this.applyTextFit(cardDiv);
                     return cardDiv;
                 }
                 
@@ -6510,8 +6510,33 @@
                         <div class="card-ability">Error loading card</div>
                     `;
                 }
-                
+                this.applyTextFit(cardDiv);
                 return cardDiv;
+            }
+
+            applyTextFit(cardElement) {
+                if (!cardElement) return;
+                const titleEl = cardElement.querySelector('.card-name');
+                const abilityEl = cardElement.querySelector('.card-ability');
+                if (titleEl) this.shrinkTextToFit(titleEl, 6);
+                if (abilityEl) this.shrinkTextToFit(abilityEl, 5);
+            }
+
+            shrinkTextToFit(el, minPx = 6) {
+                const style = window.getComputedStyle(el);
+                let sizePx = parseFloat(style.fontSize);
+                if (!Number.isFinite(sizePx)) return;
+
+                // Reset to stylesheet size before fitting.
+                el.style.fontSize = '';
+                sizePx = parseFloat(window.getComputedStyle(el).fontSize);
+
+                let guard = 0;
+                while (guard < 40 && sizePx > minPx && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)) {
+                    sizePx -= 0.5;
+                    el.style.fontSize = `${sizePx}px`;
+                    guard += 1;
+                }
             }
             
             getCardHTML(card, opts = {}) {
@@ -6580,9 +6605,11 @@
                 const assetBases = isLocal
                     ? ['assets/', '../assets/']
                     : [
+                        'assets/',
                         'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/assets/',
                         'https://cdn.jsdelivr.net/gh/samlaidh-hash/civilisations@master/assets/',
-                        'https://cdn.statically.io/gh/samlaidh-hash/civilisations/master/assets/'
+                        'https://cdn.statically.io/gh/samlaidh-hash/civilisations/master/assets/',
+                        'https://samlaidh-hash.github.io/civilisations/assets/'
                     ];
                 const slug = artSlugOverrides[safeCard.name] || String(safeCard.name || '')
                     .toLowerCase()
@@ -6591,11 +6618,16 @@
                 const artPath1 = assetBases[0] + `art-${slug}.png`;
                 const artPath2 = (assetBases[1] || assetBases[0]) + `art-${slug}.png`;
                 const artPath3 = (assetBases[2] || assetBases[0]) + `art-${slug}.png`;
-                const cinematicFallbackPath = assetBases[0] + 'art-masada-cinematic.png';
+                const artPath4 = (assetBases[3] || assetBases[0]) + `art-${slug}.png`;
+                const cinematicPath1 = assetBases[0] + 'art-masada-cinematic.png';
+                const cinematicPath2 = (assetBases[1] || assetBases[0]) + 'art-masada-cinematic.png';
+                const cinematicPath3 = (assetBases[2] || assetBases[0]) + 'art-masada-cinematic.png';
+                const cinematicPath4 = (assetBases[3] || assetBases[0]) + 'art-masada-cinematic.png';
+                const cinematicPath5 = (assetBases[4] || assetBases[0]) + 'art-masada-cinematic.png';
                 
                 return `
-                    <div class="card-art-backdrop" style="background-image: url('${cinematicFallbackPath}');">
-                        <img class="card-art-specific" src="${artPath1}" data-art2="${artPath2}" data-art3="${artPath3}" onerror="if(this.dataset.art2 && this.src !== this.dataset.art2){this.src=this.dataset.art2;return;} if(this.dataset.art3 && this.src !== this.dataset.art3){this.src=this.dataset.art3;return;} this.style.display='none';" alt="">
+                    <div class="card-art-backdrop" style="background-image: url('${cinematicPath1}'), url('${cinematicPath2}'), url('${cinematicPath3}'), url('${cinematicPath4}'), url('${cinematicPath5}');">
+                        <img class="card-art-specific" src="${artPath1}" data-art2="${artPath2}" data-art3="${artPath3}" data-art4="${artPath4}" onerror="if(this.dataset.art2 && this.src !== this.dataset.art2){this.src=this.dataset.art2;return;} if(this.dataset.art3 && this.src !== this.dataset.art3){this.src=this.dataset.art3;return;} if(this.dataset.art4 && this.src !== this.dataset.art4){this.src=this.dataset.art4;return;} this.style.display='none';" alt="">
                     </div>
                     <div class="card-header">
                         <div class="card-resources">${resourceIcons}</div>
