@@ -461,8 +461,8 @@
             border-radius: inherit;
             background-size: cover;
             background-position: center;
-            opacity: 0.28;
-            filter: saturate(1.05) contrast(1.08);
+            opacity: 0.12;
+            filter: saturate(1.02) contrast(1.04);
             z-index: 0;
             pointer-events: none;
             overflow: hidden;
@@ -474,7 +474,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            opacity: 0.32;
+            opacity: 0.56;
             z-index: 1;
             pointer-events: none;
         }
@@ -624,6 +624,7 @@
             justify-content: space-between;
             align-items: flex-start;
             margin-bottom: 4px;
+            min-height: 16px;
             position: relative;
         }
 
@@ -721,9 +722,9 @@
             text-align: center;
             margin: 2px 0;
             line-height: 1.15;
-            font-size: clamp(0.52em, 1.6vh, 0.82em);
+            font-size: clamp(0.5em, 1.55vh, 0.78em);
             color: #2c1810;
-            padding: 0 22px 0 2px;
+            padding: 0 22px;
             text-shadow: 1px 1px 2px rgba(255,255,255,0.5);
             overflow-wrap: break-word;
             word-break: normal;
@@ -737,6 +738,7 @@
             min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
+            scrollbar-width: none;
             text-align: center;
             color: #3a3a3a;
             padding: 2px 3px;
@@ -750,6 +752,11 @@
             display: block;
             -webkit-line-clamp: unset;
             -webkit-box-orient: unset;
+        }
+
+        .card-ability::-webkit-scrollbar {
+            width: 0;
+            height: 0;
         }
 
         .card-ability .inline-resource-icon {
@@ -6570,18 +6577,25 @@
                     "King's Guard": "kings-guard"
                 };
                 const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-                // Local: assets in parent of sixkingdoms (../assets/). Web/GitHub: use raw GitHub for htmlpreview.
-                const assetBase = isLocal ? '../assets/' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/assets/';
+                const assetBases = isLocal
+                    ? ['assets/', '../assets/']
+                    : [
+                        'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/assets/',
+                        'https://cdn.jsdelivr.net/gh/samlaidh-hash/civilisations@master/assets/',
+                        'https://cdn.statically.io/gh/samlaidh-hash/civilisations/master/assets/'
+                    ];
                 const slug = artSlugOverrides[safeCard.name] || String(safeCard.name || '')
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, '-')
                     .replace(/^-+|-+$/g, '');
-                const specificArtPath = assetBase + `art-${slug}.png`;
-                const cinematicFallbackPath = assetBase + 'art-masada-cinematic.png';
+                const artPath1 = assetBases[0] + `art-${slug}.png`;
+                const artPath2 = (assetBases[1] || assetBases[0]) + `art-${slug}.png`;
+                const artPath3 = (assetBases[2] || assetBases[0]) + `art-${slug}.png`;
+                const cinematicFallbackPath = assetBases[0] + 'art-masada-cinematic.png';
                 
                 return `
                     <div class="card-art-backdrop" style="background-image: url('${cinematicFallbackPath}');">
-                        <img class="card-art-specific" src="${specificArtPath}" onerror="this.style.display='none';" alt="">
+                        <img class="card-art-specific" src="${artPath1}" data-art2="${artPath2}" data-art3="${artPath3}" onerror="if(this.dataset.art2 && this.src !== this.dataset.art2){this.src=this.dataset.art2;return;} if(this.dataset.art3 && this.src !== this.dataset.art3){this.src=this.dataset.art3;return;} this.style.display='none';" alt="">
                     </div>
                     <div class="card-header">
                         <div class="card-resources">${resourceIcons}</div>
