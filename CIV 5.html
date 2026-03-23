@@ -368,6 +368,8 @@
             justify-content: center;
             font-size: 0.8em;
             font-weight: bold;
+            line-height: 1;
+            padding: 0;
             border: 2px solid rgba(255,255,255,0.2);
         }
 
@@ -650,12 +652,12 @@
             min-height: 0;
         }
 
-        /* Optical vertical center for digits in small circles (font metrics sit low in most fonts) */
+        /* Optical vertical center for digits in small circles (tune translateY: + = move down) */
         .card-circle-num,
         .ability-token-num {
             display: block;
             line-height: 1;
-            transform: translateY(-0.24em);
+            transform: translateY(0.05em);
         }
 
         .card-cost {
@@ -846,7 +848,7 @@
         }
 
         .ability-token-inline.ability-token-symbol .ability-token-num {
-            transform: translateY(-0.18em);
+            transform: translateY(0.04em);
         }
 
         .card-ability .inline-type-icon {
@@ -909,6 +911,20 @@
             object-fit: cover;
             object-position: center center;
             border-radius: 1px;
+        }
+
+        /* Fallback letter when <img> fails (injected via onerror) */
+        .card-ability .inline-resource-icon > .inline-icon-text,
+        .card-ability .inline-type-icon > .inline-icon-text {
+            position: absolute;
+            inset: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.62em;
+            font-weight: 800;
+            line-height: 1;
+            text-align: center;
         }
 
         /* Text/emoji fallback (no <img> child) */
@@ -2008,7 +2024,8 @@
 
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'"></span>`;
+                    const fbJs = JSON.stringify(String(icon.fallback));
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" decoding="async" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'inline-icon-text',textContent:${fbJs}}))"></span>`;
                 }
                 return `<span class="inline-resource-icon inline-icon-text ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
@@ -2055,7 +2072,8 @@
                 const esc = (s) => String(s).replace(/'/g, '&#39;');
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" onerror="this.outerHTML='${esc(icon.fallback)}'"></span>`;
+                    const fbJs = JSON.stringify(String(icon.fallback));
+                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" decoding="async" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'inline-icon-text',textContent:${fbJs}}))"></span>`;
                 }
                 return `<span class="inline-type-icon inline-icon-text" title="${esc(icon.name)}">${icon.fallback}</span>`;
             }
@@ -2084,6 +2102,11 @@
                 return text.split(/(<[^>]+>)/gi).map((part) => {
                     if (part.startsWith('<')) return part;
                     let r = part;
+                    /* Card DB often omits 💰 after gold amounts — insert before token formatting */
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\s+and\s+(\d+)\s+at\s+the\s+start\s+of\s+each\s+Age\b/gi, 'Gain $1 💰 when played and $2 💰 at the start of each Age');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\s+and\s+(\d+)\s+at\s+each\s+age\s+start\b/gi, 'Gain $1 💰 when played and $2 💰 at each age start');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\.\s+Provides\b/gi, 'Gain $1 💰 when played. Provides');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\.\s+Add\b/gi, 'Gain $1 💰 when played. Add');
                     r = r.replace(/(\d+)\s*🏛️/g, '<span class="ability-token-inline culture"><span class="ability-token-num">$1</span></span>');
                     r = r.replace(/(\d+)\s*⚔️/g, '<span class="ability-token-inline military"><span class="ability-token-num">$1</span></span>');
                     r = r.replace(/(\d+)\s*💰/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
@@ -2582,7 +2605,8 @@
                 this.uiManager = new UIManager(this);
                 this.iconMapping = new IconMapping();
                 const isLocal = typeof location !== 'undefined' && (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
-                this.iconMapping.setIconBaseUrl(isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/');
+                /* jsDelivr is more reliable than raw.githubusercontent from embed/preview hosts */
+                this.iconMapping.setIconBaseUrl(isLocal ? '' : 'https://cdn.jsdelivr.net/gh/samlaidh-hash/civilisations@master/');
                 this.aiManager = new AIManager(this);
                 this.timerManager = new TimerManager(this);
                 
