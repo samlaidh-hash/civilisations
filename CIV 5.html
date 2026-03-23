@@ -19,6 +19,12 @@
             overflow-x: hidden;
         }
 
+        html:has(.card:hover),
+        body:has(.card:hover) {
+            overflow-x: visible;
+            overflow-y: visible;
+        }
+
         .game-board.active {
             display: flex;
         }
@@ -452,7 +458,7 @@
             min-height: clamp(55px, 7vh, 95px);
             width: 100%;
             max-width: clamp(55px, 8vw, 72px);
-            transform-origin: center bottom;
+            transform-origin: var(--hover-origin, center bottom);
         }
 
         .card-art-backdrop {
@@ -752,9 +758,7 @@
             font-size: clamp(0.32em, 1.1vh, 0.58em);
             font-weight: 700;
             line-height: 1.2;
-            flex: 0 0 auto;
-            min-height: 24px;
-            max-height: 44px;
+            flex: 1 1 auto;
             overflow: hidden;
             text-align: center;
             color: #2c1810;
@@ -768,9 +772,7 @@
             word-break: normal;
             hyphens: none;
             white-space: normal;
-            display: -webkit-box;
-            -webkit-line-clamp: 4;
-            -webkit-box-orient: vertical;
+            display: block;
             box-sizing: border-box;
         }
 
@@ -986,7 +988,7 @@
         .hand .card {
             min-width: 85px;
             flex-shrink: 0;
-            transform-origin: bottom center;
+            transform-origin: var(--hover-origin, bottom center);
             position: relative;
         }
 
@@ -1011,7 +1013,15 @@
             z-index: 90000;
         }
 
-        .players-area:hover {
+        .players-area:hover,
+        .players-area:has(.card:hover) {
+            overflow: visible;
+            overflow-y: visible;
+            z-index: 90000;
+        }
+
+        .player-board:has(.card:hover),
+        .hand:has(.card:hover) {
             overflow: visible;
             z-index: 90000;
         }
@@ -2240,7 +2250,8 @@
             getMissingResources(aiPlayer) {
                 try {
                     const allResources = ['a', 'f', 'k', 'm', 's', 'v', 'w'];
-                    return allResources.filter(resource => !aiPlayer.resources.has(resource));
+                    const have = this.game.getPlayerResourceSet(aiPlayer);
+                    return allResources.filter((resource) => !have.has(resource));
                 } catch (error) {
                     console.error('Error getting missing resources:', error.message);
                     return ['a', 'f', 'k', 'm', 's', 'v', 'w'];
@@ -2749,17 +2760,29 @@
             /**
              * Get cost breakdown for display: base, effective, and which cards modify it.
              */
+            getPlayerResourceSet(player) {
+                if (!player || player.resources == null) return new Set();
+                const r = player.resources;
+                if (r instanceof Set) {
+                    return new Set([...r].map((x) => String(x).toLowerCase()));
+                }
+                if (Array.isArray(r)) return new Set(r.map((x) => String(x).toLowerCase()));
+                return new Set();
+            }
+
             getCardCostBreakdown(player, card) {
                 const modifiers = [];
                 try {
                     if (!card || !player) return { base: 999, effective: 999, modifiers };
                     let cost = card.cost || 0;
                     const baseCost = cost;
+                    const resourceSet = this.getPlayerResourceSet(player);
 
-                    if (card.resources && Array.isArray(card.resources) && player.resources) {
+                    if (card.resources && Array.isArray(card.resources)) {
                         let resourceMatches = 0;
-                        card.resources.forEach(resource => {
-                            if (player.resources.has(resource)) {
+                        card.resources.forEach((resource) => {
+                            const code = String(resource).toLowerCase();
+                            if (resourceSet.has(code)) {
                                 cost = Math.max(0, cost - 1);
                                 resourceMatches++;
                             }
@@ -2803,10 +2826,11 @@
              * Get how many cost points were saved by matching resources (for Customs House trigger)
              */
             getResourceSavings(player, card) {
-                if (!card || !card.resources || !Array.isArray(card.resources) || !player.resources) return 0;
+                if (!card || !card.resources || !Array.isArray(card.resources)) return 0;
+                const resourceSet = this.getPlayerResourceSet(player);
                 let savings = 0;
-                card.resources.forEach(resource => {
-                    if (player.resources.has(resource)) savings++;
+                card.resources.forEach((resource) => {
+                    if (resourceSet.has(String(resource).toLowerCase())) savings++;
                 });
                 return savings;
             }
@@ -4920,7 +4944,10 @@
                         return true;
 
                     case 'resource':
-                        player.resources.add(value);
+                        if (!player.resources || !(player.resources instanceof Set)) {
+                            player.resources = new Set(player.resources || []);
+                        }
+                        player.resources.add(String(value).toLowerCase());
                         return true;
 
                     case 'military':
@@ -6033,8 +6060,37 @@
             constructor(gameEngine) {
                 this.game = gameEngine;
                 this.notificationTimeout = null;
-                this.autoAdvanceTimeout = null; // For auto-advance functionality
+                this.autoAdvanceTimeout = null;
+                this.setupHoverOrigin();
                 console.log('UIManager initialized');
+            }
+
+            setupHoverOrigin() {
+                const updateOrigin = (e) => {
+                    const card = e.target && e.target.closest && e.target.closest('.card');
+                    if (!card || card.classList.contains('passed-card')) return;
+                    const rect = card.getBoundingClientRect();
+                    if (rect.width < 1 || rect.height < 1) return;
+
+                    const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+                    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+                    if (vw < 1 || vh < 1) return;
+
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+
+                    const margin = 12;
+                    const effW = Math.max(vw - 2 * margin, 1);
+                    const effH = Math.max(vh - 2 * margin, 1);
+                    const nx = Math.max(0, Math.min(1, (cx - margin) / effW));
+                    const ny = Math.max(0, Math.min(1, (cy - margin) / effH));
+
+                    const ox = `${(nx * 100).toFixed(2)}%`;
+                    const oy = `${(ny * 100).toFixed(2)}%`;
+                    card.style.setProperty('--hover-origin', `${ox} ${oy}`);
+                };
+
+                document.addEventListener('pointerover', updateOrigin, true);
             }
             
             updateGameDisplay() {
@@ -6174,7 +6230,9 @@
                     player.hand.forEach((card, cardIndex) => {
                         const cardElement = this.createCardElement(card, playerIndex, cardIndex, true);
                         cardElement.addEventListener('mouseenter', () => this.highlightRelatedCards(playerIndex, card));
-                        cardElement.addEventListener('mouseleave', () => this.clearAllHighlights());
+                        cardElement.addEventListener('mouseleave', (ev) => {
+                            if (this.shouldClearInteractionHighlights(ev)) this.clearAllHighlights();
+                        });
                         handElement.appendChild(cardElement);
                     });
                 } else {
@@ -6353,12 +6411,23 @@
                 const own = new Set();
                 const opponent = new Set();
                 const all = new Set();
-                if (!card || !card.effect) return { own, opponent, all };
-                const ef = card.effect;
+                if (!card) return { own, opponent, all };
+                const ef = card.effect || '';
 
                 const extractTypes = (pattern) => {
                     const m = ef.match(pattern);
                     return m ? m[1].split(',').filter(t => /^[a-zA-Z]$/.test(t)) : [];
+                };
+
+                const extractAllGlobal = (re) => {
+                    const out = [];
+                    let m;
+                    const r = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+                    while ((m = r.exec(ef)) !== null) {
+                        const letter = m[1];
+                        if (/^[a-z]$/i.test(letter)) out.push(letter.toLowerCase());
+                    }
+                    return out;
                 };
 
                 extractTypes(/addCultureToTypes:([a-z,]+)/i).forEach(t => own.add(t));
@@ -6366,8 +6435,11 @@
                 extractTypes(/addCulturePerType:([a-z,]+)/i).forEach(t => own.add(t));
                 extractTypes(/addMilitaryPerType:([a-z,]+)/i).forEach(t => own.add(t));
                 extractTypes(/gainGoldPerType:([a-z,]+)/i).forEach(t => own.add(t));
+                extractAllGlobal(/hasType:([a-z])/gi).forEach(t => own.add(t));
+                extractAllGlobal(/countType:([a-z]):\d+/gi).forEach(t => own.add(t));
                 extractTypes(/condition:hasType:([a-z])/i).forEach(t => own.add(t));
                 extractTypes(/condition:countType:([a-z])/i).forEach(t => own.add(t));
+                extractAllGlobal(/opponentLacksType:([a-z])/gi).forEach(t => opponent.add(t));
 
                 extractTypes(/ruinOpponentType:([a-z,]+)/i).forEach(t => opponent.add(t));
                 extractTypes(/gainGoldPerOpponentType:([a-z,]+)/i).forEach(t => opponent.add(t));
@@ -6389,9 +6461,17 @@
                 return { own, opponent, all };
             }
 
+            shouldClearInteractionHighlights(e) {
+                const rt = e.relatedTarget;
+                if (!rt || typeof rt.closest !== 'function') return true;
+                if (rt.closest('.tableau') || rt.closest('.hand') || rt.closest('.card')) return false;
+                if (rt.closest('#playersArea') || rt.closest('.player-board')) return false;
+                return true;
+            }
+
             highlightRelatedCards(ownerPlayerIndex, card) {
                 this.clearAllHighlights();
-                if (!card || !card.effect || !this.game) return;
+                if (!card || !this.game) return;
                 const { own, opponent, all } = this.getRelatedTypes(card);
                 const ef = card.effect;
                 const state = this.game.state;
@@ -6490,7 +6570,9 @@
                             requestAnimationFrame(() => requestAnimationFrame(() => this.applyTextFit(slot)));
 
                             slot.addEventListener('mouseenter', () => this.highlightRelatedCards(playerIndex, card));
-                            slot.addEventListener('mouseleave', () => this.clearAllHighlights());
+                            slot.addEventListener('mouseleave', (ev) => {
+                                if (this.shouldClearInteractionHighlights(ev)) this.clearAllHighlights();
+                            });
 
                             // Add activation button for cards with manual triggers
                             if (card.effect && card.effect.includes('trigger:manual')) {
@@ -6579,10 +6661,10 @@
                 const titleEl = cardElement.querySelector('.card-name');
                 const abilityEl = cardElement.querySelector('.card-ability');
                 if (titleEl) this.shrinkTextToFit(titleEl, 4);
-                if (abilityEl) this.shrinkTextToFit(abilityEl, 5);
+                if (abilityEl) this.shrinkTextToFit(abilityEl, 3);
             }
 
-            shrinkTextToFit(el, minPx = 5) {
+            shrinkTextToFit(el, minPx = 3) {
                 if (!el) return;
                 const style = window.getComputedStyle(el);
                 let sizePx = parseFloat(style.fontSize);
@@ -6593,12 +6675,12 @@
                 void el.offsetHeight;
 
                 let guard = 0;
-                while (guard < 100 && sizePx > minPx) {
+                while (guard < 200 && sizePx > minPx) {
                     const ch = el.clientHeight, cw = el.clientWidth;
                     if (ch === 0 || cw === 0) break;
                     const sh = el.scrollHeight, sw = el.scrollWidth;
                     if (sh <= ch && sw <= cw) break;
-                    sizePx -= 1;
+                    sizePx -= 0.5;
                     el.style.fontSize = `${sizePx}px`;
                     guard += 1;
                 }
@@ -6643,8 +6725,8 @@
                 let costHtml = `<div class="card-cost" title="Cost">${safeCard.cost}</div>`;
                 if (opts.showCostBreakdown && opts.player) {
                     const b = this.game.getCardCostBreakdown(opts.player, safeCard);
-                    if (b.modifiers.length > 0 && b.effective !== b.base) {
-                        const tooltip = b.modifiers.join('\n');
+                    if (b.effective !== b.base) {
+                        const tooltip = (b.modifiers && b.modifiers.length) ? b.modifiers.join('\n') : 'Cost modifiers';
                         costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck">${b.base}</span> <span class="card-cost-revised">${b.effective}</span></div>`;
                     }
                 }
