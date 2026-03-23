@@ -650,6 +650,14 @@
             min-height: 0;
         }
 
+        /* Optical vertical center for digits in small circles (font metrics sit low in most fonts) */
+        .card-circle-num,
+        .ability-token-num {
+            display: block;
+            line-height: 1;
+            transform: translateY(-0.24em);
+        }
+
         .card-cost {
             background: radial-gradient(circle, #ffd700 0%, #ffed4a 50%, #daa520 100%);
             color: #000;
@@ -837,39 +845,95 @@
             padding: 0;
         }
 
+        .ability-token-inline.ability-token-symbol .ability-token-num {
+            transform: translateY(-0.18em);
+        }
+
         .card-ability .inline-type-icon {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 0.95em;
             height: 0.95em;
+            box-sizing: border-box;
             border-radius: 2px;
             margin: 0 1px;
-            vertical-align: -0.15em;
+            vertical-align: -0.12em;
             border: 1px solid rgba(0,0,0,0.3);
             overflow: hidden;
+            line-height: 1;
+            flex-shrink: 0;
+            position: relative;
+            padding: 0;
         }
 
         .card-ability .inline-type-icon img {
+            position: absolute;
+            inset: 0;
+            display: block;
             width: 100%;
             height: 100%;
+            margin: 0;
+            padding: 0;
             object-fit: cover;
+            object-position: center center;
         }
 
         .card-ability .inline-resource-icon {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 0.95em;
             height: 0.95em;
+            box-sizing: border-box;
             border-radius: 2px;
             margin: 0 1px;
-            vertical-align: -0.15em;
+            vertical-align: -0.12em;
             border: 1px solid rgba(0,0,0,0.3);
+            overflow: hidden;
+            line-height: 1;
+            flex-shrink: 0;
+            position: relative;
+            padding: 0;
         }
 
         .card-ability .inline-resource-icon img {
+            position: absolute;
+            inset: 0;
+            display: block;
             width: 100%;
             height: 100%;
+            margin: 0;
+            padding: 0;
+            border: 0;
             object-fit: cover;
+            object-position: center center;
             border-radius: 1px;
-            vertical-align: middle;
+        }
+
+        /* Text/emoji fallback (no <img> child) */
+        .card-ability .inline-resource-icon.inline-icon-text,
+        .card-ability .inline-type-icon.inline-icon-text {
+            position: relative;
+            line-height: 1;
+            font-size: 0.62em;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        /* Same when <img> was removed by onerror (raw fallback, no .inline-icon-text) */
+        .card-ability .inline-resource-icon:not(:has(img)),
+        .card-ability .inline-type-icon:not(:has(img)) {
+            position: relative;
+            line-height: 1;
+            font-size: 0.62em;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
         }
 
         .card-footer {
@@ -1944,9 +2008,9 @@
 
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'" style="width: 100%; height: 100%; object-fit: cover;"></span>`;
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'"></span>`;
                 }
-                return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
+                return `<span class="inline-resource-icon inline-icon-text ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
 
             getTypeIcon(cardType) {
@@ -1993,7 +2057,7 @@
                     const src = this._iconSrc(icon.image);
                     return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" onerror="this.outerHTML='${esc(icon.fallback)}'"></span>`;
                 }
-                return `<span class="inline-type-icon" title="${esc(icon.name)}">${icon.fallback}</span>`;
+                return `<span class="inline-type-icon inline-icon-text" title="${esc(icon.name)}">${icon.fallback}</span>`;
             }
 
             replaceTypeNamesWithIcons(text) {
@@ -2020,13 +2084,13 @@
                 return text.split(/(<[^>]+>)/gi).map((part) => {
                     if (part.startsWith('<')) return part;
                     let r = part;
-                    r = r.replace(/(\d+)\s*🏛️/g, '<span class="ability-token-inline culture">$1</span>');
-                    r = r.replace(/(\d+)\s*⚔️/g, '<span class="ability-token-inline military">$1</span>');
-                    r = r.replace(/(\d+)\s*💰/g, '<span class="ability-token-inline gold">$1</span>');
-                    r = r.replace(/💰\s*\+(\d+)/g, '<span class="ability-token-inline gold">$1</span>');
-                    r = r.replace(/🏛️/g, '<span class="ability-token-inline culture ability-token-symbol" title="Culture">·</span>');
-                    r = r.replace(/⚔️/g, '<span class="ability-token-inline military ability-token-symbol" title="Military">·</span>');
-                    r = r.replace(/💰/g, '<span class="ability-token-inline gold ability-token-symbol" title="Gold">·</span>');
+                    r = r.replace(/(\d+)\s*🏛️/g, '<span class="ability-token-inline culture"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/(\d+)\s*⚔️/g, '<span class="ability-token-inline military"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/(\d+)\s*💰/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/💰\s*\+(\d+)/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/🏛️/g, '<span class="ability-token-inline culture ability-token-symbol" title="Culture"><span class="ability-token-num">·</span></span>');
+                    r = r.replace(/⚔️/g, '<span class="ability-token-inline military ability-token-symbol" title="Military"><span class="ability-token-num">·</span></span>');
+                    r = r.replace(/💰/g, '<span class="ability-token-inline gold ability-token-symbol" title="Gold"><span class="ability-token-num">·</span></span>');
                     return r;
                 }).join('');
             }
@@ -6835,13 +6899,13 @@
                     return `
                         <div class="card-header">
                             <div class="card-resources"></div>
-                            <div class="card-cost" title="Cost">0</div>
+                            <div class="card-cost" title="Cost"><span class="card-circle-num">0</span></div>
                         </div>
                         <div class="card-name">PASSED</div>
                         <div class="card-ability">${passedAbility}</div>
                         <div class="card-footer">
                             <div class="card-values">
-                                <div class="card-value" style="background: #ffd700; color: #000; font-size: 0.6em;">+3</div>
+                                <div class="card-value" style="background: #ffd700; color: #000; font-size: 0.6em;"><span class="card-circle-num">+3</span></div>
                             </div>
                             <div class="card-type-icon" title="Pass">⏸️</div>
                         </div>
@@ -6865,17 +6929,17 @@
                     return `<div class="resource-icon resource-${r}" title="${iconName}">${iconHtml}</div>`;
                 }).join('');
                 
-                let costHtml = `<div class="card-cost" title="Cost">${safeCard.cost}</div>`;
+                let costHtml = `<div class="card-cost" title="Cost"><span class="card-circle-num">${safeCard.cost}</span></div>`;
                 if (opts.showCostBreakdown && opts.player) {
                     const b = this.game.getCardCostBreakdown(opts.player, safeCard);
                     if (b.effective !== b.base) {
                         const tooltip = (b.modifiers && b.modifiers.length) ? b.modifiers.join('\n') : 'Cost modifiers';
-                        costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck">${b.base}</span> <span class="card-cost-revised">${b.effective}</span></div>`;
+                        costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck card-circle-num">${b.base}</span> <span class="card-cost-revised card-circle-num">${b.effective}</span></div>`;
                     }
                 }
                 
-                const cultureValue = safeCard.culture > 0 ? `<div class="card-value culture" title="Culture">${safeCard.culture}</div>` : '';
-                const militaryValue = safeCard.military > 0 ? `<div class="card-value military" title="Military">${safeCard.military}</div>` : '';
+                const cultureValue = safeCard.culture > 0 ? `<div class="card-value culture" title="Culture"><span class="card-circle-num">${safeCard.culture}</span></div>` : '';
+                const militaryValue = safeCard.military > 0 ? `<div class="card-value military" title="Military"><span class="card-circle-num">${safeCard.military}</span></div>` : '';
                 
                 const typeIconHtml = this.game.iconMapping.getTypeIcon(safeCard.type);
                 const typeName = this.game.iconMapping.typeIcons[safeCard.type]?.name || safeCard.type;
