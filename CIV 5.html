@@ -450,7 +450,8 @@
             font-size: clamp(0.5em, 1.8vh, 0.72em);
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            justify-content: flex-start;
+            align-items: stretch;
             cursor: pointer;
             transition: transform 0.25s ease 0.12s, box-shadow 0.25s ease 0.12s, border-color 0.2s ease;
             position: relative;
@@ -640,44 +641,61 @@
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 4px;
-            min-height: 16px;
+            width: 100%;
+            flex-shrink: 0;
+            margin-bottom: 2px;
+            padding: 0 1px;
+            gap: 4px;
             position: relative;
+            min-height: 0;
+        }
+
+        /* Optical vertical center for digits in small circles (font metrics sit low in most fonts) */
+        .card-circle-num,
+        .ability-token-num {
+            display: block;
+            line-height: 1;
+            transform: translateY(-0.24em);
         }
 
         .card-cost {
             background: radial-gradient(circle, #ffd700 0%, #ffed4a 50%, #daa520 100%);
             color: #000;
             border-radius: 50%;
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            min-height: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.7em;
+            font-size: 0.65em;
             font-weight: bold;
+            line-height: 1;
+            text-align: center;
             border: 2px solid #8b4513;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            position: absolute;
-            top: -3px;
-            right: -3px;
+            position: relative;
+            flex-shrink: 0;
         }
 
         .card-cost-modified {
-            position: absolute;
-            top: -3px;
-            right: -3px;
+            position: relative;
             display: flex;
             align-items: center;
-            gap: 2px;
+            justify-content: center;
+            gap: 1px;
             background: radial-gradient(circle, #ffd700 0%, #ffed4a 50%, #daa520 100%);
             border-radius: 50%;
-            padding: 2px 4px;
-            min-width: 28px;
-            height: 18px;
-            justify-content: center;
+            min-width: 22px;
+            min-height: 22px;
+            width: auto;
+            height: auto;
+            max-width: 90%;
+            padding: 2px 3px;
             border: 2px solid #8b4513;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            flex-shrink: 0;
         }
         .card-cost-struck {
             text-decoration: line-through;
@@ -694,10 +712,10 @@
             display: flex;
             flex-wrap: wrap;
             gap: 1px;
-            max-width: 40px;
-            position: absolute;
-            top: -3px;
-            left: -3px;
+            max-width: calc(100% - 28px);
+            position: relative;
+            flex: 1 1 auto;
+            align-content: flex-start;
         }
 
         .resource-icon {
@@ -737,18 +755,18 @@
         .card-name {
             font-weight: 900;
             text-align: center;
-            margin: 2px 0;
-            line-height: 1.15;
+            margin: 0 0 2px 0;
+            line-height: 1.12;
             font-size: clamp(0.5em, 1.55vh, 0.78em);
             color: #2c1810;
-            padding: 0 24px;
+            padding: 0 18px;
             text-shadow: 0 0 3px rgba(255,255,255,0.9), 1px 1px 2px rgba(255,255,255,0.7);
             overflow-wrap: normal;
             word-break: normal;
             hyphens: none;
             white-space: normal;
-            min-height: 16px;
-            max-height: 26px;
+            min-height: 0;
+            flex: 1 1 0;
             overflow: hidden;
             display: block;
             box-sizing: border-box;
@@ -758,7 +776,8 @@
             font-size: clamp(0.32em, 1.1vh, 0.58em);
             font-weight: 700;
             line-height: 1.2;
-            flex: 1 1 auto;
+            flex: 1.35 1 0;
+            min-height: 0;
             overflow: hidden;
             text-align: center;
             color: #2c1810;
@@ -776,22 +795,145 @@
             box-sizing: border-box;
         }
 
-        .card-ability .inline-resource-icon {
-            display: inline-block;
+        .ability-token-inline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            place-content: center;
+            min-width: 1em;
+            min-height: 1em;
+            aspect-ratio: 1;
+            height: auto;
+            padding: 0 2px;
+            border-radius: 50%;
+            font-size: 0.85em;
+            font-weight: bold;
+            line-height: 1;
+            vertical-align: -0.12em;
+            margin: 0 1px;
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.35);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+        }
+
+        .ability-token-inline.culture {
+            background: radial-gradient(circle, #4169e1 0%, #191970 100%);
+            color: #fff;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 1px rgba(0,0,0,0.8), 0 1px 1px rgba(0,0,0,0.45);
+        }
+
+        .ability-token-inline.military {
+            background: radial-gradient(circle, #dc143c 0%, #8b0000 100%);
+            color: #fff;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 1px rgba(0,0,0,0.8), 0 1px 1px rgba(0,0,0,0.45);
+        }
+
+        .ability-token-inline.gold {
+            background: radial-gradient(circle, #ffd700 0%, #daa520 100%);
+            color: #000;
+            text-shadow: none;
+        }
+
+        .ability-token-inline.ability-token-symbol {
+            min-width: 0.75em;
+            height: 0.75em;
+            font-size: 0.5em;
+            padding: 0;
+        }
+
+        .ability-token-inline.ability-token-symbol .ability-token-num {
+            transform: translateY(-0.18em);
+        }
+
+        .card-ability .inline-type-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 0.95em;
             height: 0.95em;
+            box-sizing: border-box;
             border-radius: 2px;
             margin: 0 1px;
-            vertical-align: -0.15em;
+            vertical-align: -0.12em;
             border: 1px solid rgba(0,0,0,0.3);
+            overflow: hidden;
+            line-height: 1;
+            flex-shrink: 0;
+            position: relative;
+            padding: 0;
+        }
+
+        .card-ability .inline-type-icon img {
+            position: absolute;
+            inset: 0;
+            display: block;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            object-fit: cover;
+            object-position: center center;
+        }
+
+        .card-ability .inline-resource-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 0.95em;
+            height: 0.95em;
+            box-sizing: border-box;
+            border-radius: 2px;
+            margin: 0 1px;
+            vertical-align: -0.12em;
+            border: 1px solid rgba(0,0,0,0.3);
+            overflow: hidden;
+            line-height: 1;
+            flex-shrink: 0;
+            position: relative;
+            padding: 0;
         }
 
         .card-ability .inline-resource-icon img {
+            position: absolute;
+            inset: 0;
+            display: block;
             width: 100%;
             height: 100%;
+            margin: 0;
+            padding: 0;
+            border: 0;
             object-fit: cover;
+            object-position: center center;
             border-radius: 1px;
-            vertical-align: middle;
+        }
+
+        /* Text/emoji fallback (no <img> child) */
+        .card-ability .inline-resource-icon.inline-icon-text,
+        .card-ability .inline-type-icon.inline-icon-text {
+            position: relative;
+            line-height: 1;
+            font-size: 0.62em;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        /* Same when <img> was removed by onerror (raw fallback, no .inline-icon-text) */
+        .card-ability .inline-resource-icon:not(:has(img)),
+        .card-ability .inline-type-icon:not(:has(img)) {
+            position: relative;
+            line-height: 1;
+            font-size: 0.62em;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
         }
 
         .card-footer {
@@ -800,6 +942,7 @@
             align-items: center;
             margin-top: 4px;
             position: relative;
+            flex-shrink: 0;
         }
 
         .card-values {
@@ -816,6 +959,9 @@
             justify-content: center;
             font-size: 0.65em;
             font-weight: bold;
+            line-height: 1;
+            text-align: center;
+            padding: 0;
             border: 2px solid rgba(0,0,0,0.4);
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             color: white;
@@ -1830,7 +1976,9 @@
 
                 this.resourceNameToCode = {
                     'Animals': 'a', 'Food': 'f', 'Knowledge': 'k', 'Metal': 'm',
-                    'Stone': 's', 'Valuables': 'v', 'Wood': 'w'
+                    'Stone': 's', 'Valuables': 'v', 'Wood': 'w',
+                    'metal': 'm', 'stone': 's', 'food': 'f', 'wood': 'w', 'animals': 'a',
+                    'knowledge': 'k', 'valuables': 'v'
                 };
             }
 
@@ -1860,9 +2008,9 @@
 
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'" style="width: 100%; height: 100%; object-fit: cover;"></span>`;
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'"></span>`;
                 }
-                return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
+                return `<span class="inline-resource-icon inline-icon-text ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
 
             getTypeIcon(cardType) {
@@ -1888,13 +2036,71 @@
             }
 
             replaceResourceNamesWithIcons(text) {
-                let result = text;
-                Object.keys(this.resourceNameToCode).forEach(resourceName => {
-                    const resourceCode = this.resourceNameToCode[resourceName];
-                    const regex = new RegExp(`\\b${resourceName}\\b`, 'gi');
-                    result = result.replace(regex, this.getInlineResourceIcon(resourceCode));
-                });
-                return result;
+                if (!text) return '';
+                return text.split(/(<[^>]+>)/gi).map((part) => {
+                    if (part.startsWith('<')) return part;
+                    let r = part;
+                    Object.keys(this.resourceNameToCode).forEach((resourceName) => {
+                        const resourceCode = this.resourceNameToCode[resourceName];
+                        const regex = new RegExp(`\\b${resourceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+                        r = r.replace(regex, () => this.getInlineResourceIcon(resourceCode));
+                    });
+                    return r;
+                }).join('');
+            }
+
+            getInlineTypeIcon(cardType) {
+                const icon = this.typeIcons[cardType];
+                if (!icon) return '';
+                const esc = (s) => String(s).replace(/'/g, '&#39;');
+                if (icon.image) {
+                    const src = this._iconSrc(icon.image);
+                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" onerror="this.outerHTML='${esc(icon.fallback)}'"></span>`;
+                }
+                return `<span class="inline-type-icon inline-icon-text" title="${esc(icon.name)}">${icon.fallback}</span>`;
+            }
+
+            replaceTypeNamesWithIcons(text) {
+                if (!text) return '';
+                const pairs = [
+                    ['Underworld', 'u'], ['Fortified', 'f'], ['Infantry', 'i'], ['Mounted', 'm'],
+                    ['Concept', 'a'], ['Civic', 'c'], ['Economic', 'e'], ['Holy', 'h'],
+                    ['Naval', 'n'], ['Person', 'p'], ['Ranged', 'r'], ['Trade', 't'], ['Wonder', 'w'],
+                    ['Place', 'N']
+                ];
+                return text.split(/(<[^>]+>)/gi).map((part) => {
+                    if (part.startsWith('<')) return part;
+                    let r = part;
+                    pairs.forEach(([name, code]) => {
+                        const regex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+                        r = r.replace(regex, (m) => `${this.getInlineTypeIcon(code)}${m}`);
+                    });
+                    return r;
+                }).join('');
+            }
+
+            formatAbilityTokens(text) {
+                if (!text) return '';
+                return text.split(/(<[^>]+>)/gi).map((part) => {
+                    if (part.startsWith('<')) return part;
+                    let r = part;
+                    r = r.replace(/(\d+)\s*🏛️/g, '<span class="ability-token-inline culture"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/(\d+)\s*⚔️/g, '<span class="ability-token-inline military"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/(\d+)\s*💰/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/💰\s*\+(\d+)/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
+                    r = r.replace(/🏛️/g, '<span class="ability-token-inline culture ability-token-symbol" title="Culture"><span class="ability-token-num">·</span></span>');
+                    r = r.replace(/⚔️/g, '<span class="ability-token-inline military ability-token-symbol" title="Military"><span class="ability-token-num">·</span></span>');
+                    r = r.replace(/💰/g, '<span class="ability-token-inline gold ability-token-symbol" title="Gold"><span class="ability-token-num">·</span></span>');
+                    return r;
+                }).join('');
+            }
+
+            processAbilityText(raw) {
+                if (!raw) return '';
+                let t = this.replaceResourceNamesWithIcons(raw);
+                t = this.replaceTypeNamesWithIcons(t);
+                t = this.formatAbilityTokens(t);
+                return t;
             }
         }
 
@@ -6689,16 +6895,17 @@
             getCardHTML(card, opts = {}) {
                 // Handle PASSED cards specially
                 if (card.name === "PASSED") {
+                    const passedAbility = this.game.iconMapping.processAbilityText('No affordable cards this turn.<br>💰 +3 Gold awarded');
                     return `
                         <div class="card-header">
                             <div class="card-resources"></div>
-                            <div class="card-cost" title="Cost">0</div>
+                            <div class="card-cost" title="Cost"><span class="card-circle-num">0</span></div>
                         </div>
                         <div class="card-name">PASSED</div>
-                        <div class="card-ability">No affordable cards this turn.<br>💰 +3 Gold awarded</div>
+                        <div class="card-ability">${passedAbility}</div>
                         <div class="card-footer">
                             <div class="card-values">
-                                <div class="card-value" style="background: #ffd700; color: #000; font-size: 0.6em;">+3💰</div>
+                                <div class="card-value" style="background: #ffd700; color: #000; font-size: 0.6em;"><span class="card-circle-num">+3</span></div>
                             </div>
                             <div class="card-type-icon" title="Pass">⏸️</div>
                         </div>
@@ -6722,22 +6929,22 @@
                     return `<div class="resource-icon resource-${r}" title="${iconName}">${iconHtml}</div>`;
                 }).join('');
                 
-                let costHtml = `<div class="card-cost" title="Cost">${safeCard.cost}</div>`;
+                let costHtml = `<div class="card-cost" title="Cost"><span class="card-circle-num">${safeCard.cost}</span></div>`;
                 if (opts.showCostBreakdown && opts.player) {
                     const b = this.game.getCardCostBreakdown(opts.player, safeCard);
                     if (b.effective !== b.base) {
                         const tooltip = (b.modifiers && b.modifiers.length) ? b.modifiers.join('\n') : 'Cost modifiers';
-                        costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck">${b.base}</span> <span class="card-cost-revised">${b.effective}</span></div>`;
+                        costHtml = `<div class="card-cost-modified" title="${tooltip.replace(/"/g, '&quot;')}"><span class="card-cost-struck card-circle-num">${b.base}</span> <span class="card-cost-revised card-circle-num">${b.effective}</span></div>`;
                     }
                 }
                 
-                const cultureValue = safeCard.culture > 0 ? `<div class="card-value culture" title="Culture">${safeCard.culture}</div>` : '';
-                const militaryValue = safeCard.military > 0 ? `<div class="card-value military" title="Military">${safeCard.military}</div>` : '';
+                const cultureValue = safeCard.culture > 0 ? `<div class="card-value culture" title="Culture"><span class="card-circle-num">${safeCard.culture}</span></div>` : '';
+                const militaryValue = safeCard.military > 0 ? `<div class="card-value military" title="Military"><span class="card-circle-num">${safeCard.military}</span></div>` : '';
                 
                 const typeIconHtml = this.game.iconMapping.getTypeIcon(safeCard.type);
                 const typeName = this.game.iconMapping.typeIcons[safeCard.type]?.name || safeCard.type;
                 
-                const processedAbility = this.game.iconMapping.replaceResourceNamesWithIcons(safeCard.ability || '');
+                const processedAbility = this.game.iconMapping.processAbilityText(safeCard.ability || '');
                 
                 // Artwork underlay:
                 // - Use absolute URLs when served from web (htmlpreview, etc.) so card art loads correctly
