@@ -368,6 +368,8 @@
             justify-content: center;
             font-size: 0.8em;
             font-weight: bold;
+            line-height: 1;
+            padding: 0;
             border: 2px solid rgba(255,255,255,0.2);
         }
 
@@ -650,12 +652,46 @@
             min-height: 0;
         }
 
-        /* Optical vertical center for digits in small circles (font metrics sit low in most fonts) */
-        .card-circle-num,
-        .ability-token-num {
-            display: block;
+        /* Ability text tokens: fill flex circle and center digit (avoids "1" sitting right in glyph box) */
+        .ability-token-inline .ability-token-num {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            margin: 0;
+            padding: 0;
             line-height: 1;
-            transform: translateY(-0.24em);
+            box-sizing: border-box;
+            text-align: center;
+            transform: none;
+        }
+
+        /* Culture chips: digits often sit high in the circle vs footer stats — nudge down slightly */
+        .ability-token-inline.culture:not(.ability-token-symbol) .ability-token-num {
+            transform: translateY(0.1em);
+        }
+
+        /* Corner cost / stat circles: same centering model as .ability-token-inline (flex, no translateY) */
+        .card-circle-num {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            margin: 0;
+            padding: 0;
+            transform: none;
+            font-variant-numeric: tabular-nums;
+            text-align: center;
+        }
+
+        /* Fill the circle only when a single number (not card-cost-modified with two values) */
+        .card-cost > .card-circle-num:only-child,
+        .card-value > .card-circle-num:only-child {
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
         }
 
         .card-cost {
@@ -669,6 +705,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            place-content: center;
             font-size: 0.65em;
             font-weight: bold;
             line-height: 1;
@@ -677,6 +714,7 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             position: relative;
             flex-shrink: 0;
+            box-sizing: border-box;
         }
 
         .card-cost-modified {
@@ -804,7 +842,7 @@
             min-height: 1em;
             aspect-ratio: 1;
             height: auto;
-            padding: 0 2px;
+            padding: 0;
             border-radius: 50%;
             font-size: 0.85em;
             font-weight: bold;
@@ -814,6 +852,7 @@
             box-sizing: border-box;
             border: 1px solid rgba(0,0,0,0.35);
             box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            overflow: hidden;
         }
 
         .ability-token-inline.culture {
@@ -821,7 +860,7 @@
             color: #fff;
             text-align: center;
             font-variant-numeric: tabular-nums;
-            text-shadow: 0 0 1px rgba(0,0,0,0.8), 0 1px 1px rgba(0,0,0,0.45);
+            text-shadow: 0 0 2px rgba(0,0,0,0.65);
         }
 
         .ability-token-inline.military {
@@ -829,7 +868,7 @@
             color: #fff;
             text-align: center;
             font-variant-numeric: tabular-nums;
-            text-shadow: 0 0 1px rgba(0,0,0,0.8), 0 1px 1px rgba(0,0,0,0.45);
+            text-shadow: 0 0 2px rgba(0,0,0,0.65);
         }
 
         .ability-token-inline.gold {
@@ -846,7 +885,7 @@
         }
 
         .ability-token-inline.ability-token-symbol .ability-token-num {
-            transform: translateY(-0.18em);
+            transform: translateY(0.06em);
         }
 
         .card-ability .inline-type-icon {
@@ -911,6 +950,20 @@
             border-radius: 1px;
         }
 
+        /* Fallback letter when <img> fails (injected via onerror) */
+        .card-ability .inline-resource-icon > .inline-icon-text,
+        .card-ability .inline-type-icon > .inline-icon-text {
+            position: absolute;
+            inset: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.62em;
+            font-weight: 800;
+            line-height: 1;
+            text-align: center;
+        }
+
         /* Text/emoji fallback (no <img> child) */
         .card-ability .inline-resource-icon.inline-icon-text,
         .card-ability .inline-type-icon.inline-icon-text {
@@ -957,6 +1010,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            place-content: center;
             font-size: 0.65em;
             font-weight: bold;
             line-height: 1;
@@ -965,7 +1019,8 @@
             border: 2px solid rgba(0,0,0,0.4);
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             color: white;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            text-shadow: 0 0 1px rgba(0,0,0,0.6), 0 1px 1px rgba(0,0,0,0.45);
+            box-sizing: border-box;
         }
 
         .card-value.culture {
@@ -2008,7 +2063,9 @@
 
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name}"><img src="${src}" alt="${icon.name}" onerror="this.outerHTML='${icon.fallback}'"></span>`;
+                    const fbJs = JSON.stringify(String(icon.fallback));
+                    /* Single-quoted onerror: JSON.stringify uses "…" so it must not sit inside a double-quoted attribute */
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name.replace(/"/g, '&quot;')}"><img src="${src}" alt="${icon.name.replace(/"/g, '&quot;')}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
                 }
                 return `<span class="inline-resource-icon inline-icon-text ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
@@ -2055,7 +2112,8 @@
                 const esc = (s) => String(s).replace(/'/g, '&#39;');
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
-                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" onerror="this.outerHTML='${esc(icon.fallback)}'"></span>`;
+                    const fbJs = JSON.stringify(String(icon.fallback));
+                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
                 }
                 return `<span class="inline-type-icon inline-icon-text" title="${esc(icon.name)}">${icon.fallback}</span>`;
             }
@@ -2084,6 +2142,11 @@
                 return text.split(/(<[^>]+>)/gi).map((part) => {
                     if (part.startsWith('<')) return part;
                     let r = part;
+                    /* Card DB often omits 💰 after gold amounts — insert before token formatting */
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\s+and\s+(\d+)\s+at\s+the\s+start\s+of\s+each\s+Age\b/gi, 'Gain $1 💰 when played and $2 💰 at the start of each Age');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\s+and\s+(\d+)\s+at\s+each\s+age\s+start\b/gi, 'Gain $1 💰 when played and $2 💰 at each age start');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\.\s+Provides\b/gi, 'Gain $1 💰 when played. Provides');
+                    r = r.replace(/\bGain\s+(\d+)\s+when\s+played\.\s+Add\b/gi, 'Gain $1 💰 when played. Add');
                     r = r.replace(/(\d+)\s*🏛️/g, '<span class="ability-token-inline culture"><span class="ability-token-num">$1</span></span>');
                     r = r.replace(/(\d+)\s*⚔️/g, '<span class="ability-token-inline military"><span class="ability-token-num">$1</span></span>');
                     r = r.replace(/(\d+)\s*💰/g, '<span class="ability-token-inline gold"><span class="ability-token-num">$1</span></span>');
@@ -2582,7 +2645,8 @@
                 this.uiManager = new UIManager(this);
                 this.iconMapping = new IconMapping();
                 const isLocal = typeof location !== 'undefined' && (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
-                this.iconMapping.setIconBaseUrl(isLocal ? '' : 'https://raw.githubusercontent.com/samlaidh-hash/civilisations/master/');
+                /* jsDelivr is more reliable than raw.githubusercontent from embed/preview hosts */
+                this.iconMapping.setIconBaseUrl(isLocal ? '' : 'https://cdn.jsdelivr.net/gh/samlaidh-hash/civilisations@master/');
                 this.aiManager = new AIManager(this);
                 this.timerManager = new TimerManager(this);
                 
