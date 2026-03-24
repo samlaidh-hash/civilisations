@@ -363,14 +363,14 @@
             width: 22px;
             height: 22px;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: grid;
+            place-items: center;
             font-size: 0.8em;
             font-weight: bold;
             line-height: 1;
             padding: 0;
             border: 2px solid rgba(255,255,255,0.2);
+            box-sizing: border-box;
         }
 
         .gold { background: linear-gradient(145deg, #ffd700, #ffed4a); color: #000; }
@@ -652,46 +652,24 @@
             min-height: 0;
         }
 
-        /* Ability text tokens: fill flex circle and center digit (avoids "1" sitting right in glyph box) */
+        /* Ability text tokens: parent grid centers the digit (no per-token translate hacks) */
         .ability-token-inline .ability-token-num {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            min-width: 0;
+            display: block;
+            line-height: 1;
             margin: 0;
             padding: 0;
-            line-height: 1;
-            box-sizing: border-box;
             text-align: center;
-            transform: none;
+            font-variant-numeric: tabular-nums;
         }
 
-        /* Culture chips: digits often sit high in the circle vs footer stats — nudge down slightly */
-        .ability-token-inline.culture:not(.ability-token-symbol) .ability-token-num {
-            transform: translateY(0.1em);
-        }
-
-        /* Corner cost / stat circles: same centering model as .ability-token-inline (flex, no translateY) */
+        /* Corner cost / stat circles */
         .card-circle-num {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: block;
             line-height: 1;
             margin: 0;
             padding: 0;
-            transform: none;
             font-variant-numeric: tabular-nums;
             text-align: center;
-        }
-
-        /* Fill the circle only when a single number (not card-cost-modified with two values) */
-        .card-cost > .card-circle-num:only-child,
-        .card-value > .card-circle-num:only-child {
-            width: 100%;
-            height: 100%;
-            box-sizing: border-box;
         }
 
         .card-cost {
@@ -702,10 +680,8 @@
             height: 20px;
             min-width: 20px;
             min-height: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            place-content: center;
+            display: grid;
+            place-items: center;
             font-size: 0.65em;
             font-weight: bold;
             line-height: 1;
@@ -834,15 +810,13 @@
         }
 
         .ability-token-inline {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            place-content: center;
+            display: inline-grid;
+            place-items: center;
             min-width: 1em;
             min-height: 1em;
             aspect-ratio: 1;
             height: auto;
-            padding: 0;
+            padding: 0 1px;
             border-radius: 50%;
             font-size: 0.85em;
             font-weight: bold;
@@ -885,7 +859,7 @@
         }
 
         .ability-token-inline.ability-token-symbol .ability-token-num {
-            transform: translateY(0.06em);
+            transform: translateY(0.04em);
         }
 
         .card-ability .inline-type-icon {
@@ -1007,10 +981,8 @@
             width: 15px;
             height: 15px;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            place-content: center;
+            display: grid;
+            place-items: center;
             font-size: 0.65em;
             font-weight: bold;
             line-height: 1;
@@ -1019,7 +991,7 @@
             border: 2px solid rgba(0,0,0,0.4);
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             color: white;
-            text-shadow: 0 0 1px rgba(0,0,0,0.6), 0 1px 1px rgba(0,0,0,0.45);
+            text-shadow: 0 0 2px rgba(0,0,0,0.55);
             box-sizing: border-box;
         }
 
@@ -2039,6 +2011,12 @@
 
             setIconBaseUrl(url) { this.iconBaseUrl = url || ''; }
 
+            /** Safe for double-quoted HTML attributes (src, title, alt) */
+            escapeHtmlAttr(s) {
+                if (s == null || s === undefined) return '';
+                return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            }
+
             _iconSrc(filename) {
                 if (!filename) return '';
                 return this.iconBaseUrl ? this.iconBaseUrl + filename : filename;
@@ -2063,9 +2041,11 @@
 
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
+                    const safeSrc = this.escapeHtmlAttr(src);
+                    const safeLabel = this.escapeHtmlAttr(icon.name);
                     const fbJs = JSON.stringify(String(icon.fallback));
                     /* Single-quoted onerror: JSON.stringify uses "…" so it must not sit inside a double-quoted attribute */
-                    return `<span class="inline-resource-icon ${fallbackClass}" title="${icon.name.replace(/"/g, '&quot;')}"><img src="${src}" alt="${icon.name.replace(/"/g, '&quot;')}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
+                    return `<span class="inline-resource-icon ${fallbackClass}" title="${safeLabel}"><img src="${safeSrc}" alt="${safeLabel}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
                 }
                 return `<span class="inline-resource-icon inline-icon-text ${fallbackClass}" title="${icon.name}">${icon.fallback}</span>`;
             }
@@ -2112,8 +2092,10 @@
                 const esc = (s) => String(s).replace(/'/g, '&#39;');
                 if (icon.image) {
                     const src = this._iconSrc(icon.image);
+                    const safeSrc = this.escapeHtmlAttr(src);
+                    const safeLabel = this.escapeHtmlAttr(icon.name);
                     const fbJs = JSON.stringify(String(icon.fallback));
-                    return `<span class="inline-type-icon" title="${esc(icon.name)}"><img src="${src}" alt="${esc(icon.name)}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
+                    return `<span class="inline-type-icon" title="${safeLabel}"><img src="${safeSrc}" alt="${safeLabel}" decoding="async" onerror='this.replaceWith(Object.assign(document.createElement("span"),{className:"inline-icon-text",textContent:${fbJs}}))'></span>`;
                 }
                 return `<span class="inline-type-icon inline-icon-text" title="${esc(icon.name)}">${icon.fallback}</span>`;
             }
@@ -2160,9 +2142,10 @@
 
             processAbilityText(raw) {
                 if (!raw) return '';
-                let t = this.replaceResourceNamesWithIcons(raw);
+                /* Format 💰/🏛️/⚔️ tokens first so resource/type HTML never splits gold phrases */
+                let t = this.formatAbilityTokens(raw);
+                t = this.replaceResourceNamesWithIcons(t);
                 t = this.replaceTypeNamesWithIcons(t);
-                t = this.formatAbilityTokens(t);
                 return t;
             }
         }
@@ -4088,42 +4071,42 @@
                 this.cards[1] = [
                     {
                         name: "Irrigation", cost: 2, type: "e", culture: 0, military: 0, resources: ["f"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Food.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Food.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:f"
                     },
                     {
                         name: "Mining", cost: 2, type: "e", culture: 0, military: 0, resources: ["m"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Metal.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Metal.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:m"
                     },
                     {
                         name: "Schools", cost: 2, type: "e", culture: 0, military: 0, resources: ["k"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Knowledge.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Knowledge.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:k"
                     },
                     {
                         name: "Stone Pit", cost: 2, type: "e", culture: 0, military: 0, resources: ["s"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Stone.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Stone.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:s"
                     },
                     {
                         name: "Logging Camp", cost: 2, type: "e", culture: 0, military: 0, resources: ["w"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Wood.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Wood.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:w"
                     },
                     {
                         name: "Herding", cost: 2, type: "e", culture: 0, military: 0, resources: ["a", "f"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Animals and Food.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Animals and Food.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:a,resource:f"
                     },
                     {
                         name: "Jewellers Workshop", cost: 2, type: "e", culture: 0, military: 0, resources: ["v"],
-                        ability: "Gain 1 when played and 1 at the start of each Age. Provides Valuables.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age. Provides Valuables.",
                         effect: "goldOnPlay:1,goldPerAge:1,resource:v"
                     },
                     {
                         name: "Gold Mine", cost: 3, type: "e", culture: 0, military: 0, resources: ["v"],
-                        ability: "Gain 3 when played and 3 at the start of each Age.",
+                        ability: "Gain 3 💰 when played and 3 💰 at the start of each Age.",
                         effect: "goldOnPlay:3,goldPerAge:3,resource:v"
                     },
                     {
@@ -4138,7 +4121,7 @@
                     },
                     {
                         name: "Trading Ships", cost: 2, type: "n", culture: 0, military: 1, resources: ["w"],
-                        ability: "Gain 1 when played and 1 at the start of each Age.",
+                        ability: "Gain 1 💰 when played and 1 💰 at the start of each Age.",
                         effect: "military:1,goldOnPlay:1,goldPerAge:1"
                     },
                     {
@@ -4851,10 +4834,10 @@
             },
             cards: {
                 1: [
-                    { name: "Irrigation Canal", cost: 2, type: "e", culture: 0, military: 0, resources: ["f"], ability: "Gain 1 when played and 1 at each age start. Provides Food.", effect: "goldOnPlay:1,goldPerAge:1,resource:f" },
+                    { name: "Irrigation Canal", cost: 2, type: "e", culture: 0, military: 0, resources: ["f"], ability: "Gain 1 💰 when played and 1 💰 at each age start. Provides Food.", effect: "goldOnPlay:1,goldPerAge:1,resource:f" },
                     { name: "Clay Tablets", cost: 2, type: "a", culture: 1, military: 0, resources: ["k"], ability: "Add 1 culture when you play an Economic card.", effect: "culture:1,trigger:playCardType:e,effect:addCulture:1" },
                     { name: "City Walls", cost: 3, type: "f", culture: 0, military: 1, resources: ["s"], ability: "When attacked, add 1 to each Fortified.", effect: "military:1,trigger:warDeclared,effect:addMilitaryToTypes:f:1,tap" },
-                    { name: "Granary", cost: 2, type: "e", culture: 0, military: 0, resources: ["f", "a"], ability: "Gain 2 when played. Provides Food.", effect: "goldOnPlay:2,resource:f" }
+                    { name: "Granary", cost: 2, type: "e", culture: 0, military: 0, resources: ["f", "a"], ability: "Gain 2 💰 when played. Provides Food.", effect: "goldOnPlay:2,resource:f" }
                 ],
                 2: [
                     { name: "Ziggurat", cost: 3, type: "w", culture: 2, military: 0, resources: ["s", "k"], ability: "Add 1 culture at end of each age.", effect: "culture:2,trigger:endOfAge,effect:addCulture:1" },
@@ -4883,7 +4866,7 @@
             cards: {
                 1: [
                     { name: "Priest", cost: 2, type: "p", culture: 1, military: 0, resources: ["v"], ability: "Add 1 culture when you play a Holy card.", effect: "culture:1,trigger:playCardType:h,effect:addCulture:1" },
-                    { name: "Temple Offerings", cost: 2, type: "h", culture: 1, military: 0, resources: ["v"], ability: "Gain 1 when played. Add 1 culture per Holy when played.", effect: "culture:1,goldOnPlay:1,trigger:playCardType:h,effect:addCulture:1" },
+                    { name: "Temple Offerings", cost: 2, type: "h", culture: 1, military: 0, resources: ["v"], ability: "Gain 1 💰 when played. Add 1 culture per Holy when played.", effect: "culture:1,goldOnPlay:1,trigger:playCardType:h,effect:addCulture:1" },
                     { name: "Divine Favor", cost: 3, type: "h", culture: 2, military: 0, resources: ["k", "v"], ability: "Add 1 culture to each Holy when played.", effect: "culture:2,trigger:playCardType:h,effect:addCulture:1" },
                     { name: "Royal Decree", cost: 3, type: "c", culture: 1, military: 1, resources: ["s"], ability: "Add 1 culture and military to each Civic when played.", effect: "culture:1,military:1,trigger:playCardType:c,effect:addCultureToTypes:c:1,addMilitaryToTypes:c:1" }
                 ],
